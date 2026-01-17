@@ -108,6 +108,9 @@ func (c *codexRelay) Relay() {
 
 		// 设置正确的 Host 头
 		req.Host = upstreamURL.Host
+		req.Header.Get("Authorization") //todo
+		// todo 重置Authorization从数据库或者配置取
+		req.Header.Set("Authorization", "Bearer sk-ant-oat01-3pOZJw3eh_LRataPfuRKvSS2_7I99bUKdX3AfbRfPkoHx3RbzoYSEaAa2NC3pdyERGr-zZLyE5vSRA5UeVNPH9gopj2NYAA")
 		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
 		req.Header.Set("X-Forwarded-Proto", "https")
 		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
