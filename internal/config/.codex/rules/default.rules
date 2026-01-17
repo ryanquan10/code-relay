@@ -1,0 +1,2 @@
+prefix_rule(pattern=["powershell.exe", "-Command", "Get-ChildItem -Recurse internal | Select-Object FullName, Length; rg -n \"package .*|import \\(|github.com/gorilla/websocket|^module |^go 1\" internal -n --line-number"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "go mod tidy"], decision="allow")
