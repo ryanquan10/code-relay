@@ -66,14 +66,14 @@ type ProductSource struct {
 
 // Account maps to account (account instances).
 type Account struct {
-	ID               uint64     `db:"id" json:"id"`
-	CardNumber       string     `db:"card_number" json:"card_number"`
-	AccountEmail     string     `db:"account_email" json:"account_email"`
-	AccountPassword  *string    `db:"account_password" json:"account_password"`
+	ID uint64 `db:"id" json:"id"`
+	//CardNumber       string     `db:"card_number" json:"card_number"`
+	AccountEmail     string     `db:"account_email" json:"account_email"`       //没有则为空 临时account
+	AccountPassword  *string    `db:"account_password" json:"account_password"` //没有则为空 临时account
 	Token            *string    `db:"token" json:"token"`
 	ProductID        int64      `db:"product_id" json:"product_id"`
 	SourceID         int64      `db:"source_id" json:"source_id"`
-	UserID           *uint64    `db:"user_id" json:"user_id"`
+	UserID           *uint64    `db:"user_id" json:"user_id"` //没有则为空
 	Status           string     `db:"status" json:"status"`
 	ExpireDate       *time.Time `db:"expire_date" json:"expire_date"`
 	Balance          float64    `db:"balance" json:"balance"`
@@ -81,4 +81,14 @@ type Account struct {
 	Remark           *string    `db:"remark" json:"remark"`
 	CreateTime       time.Time  `db:"create_time" json:"create_time"`
 	UpdateTime       time.Time  `db:"update_time" json:"update_time"`
+}
+
+// 一个小时增加一条记录
+type Usage struct {
+	ID         uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	AccountId  uint64    `gorm:"column:account_id" json:"account_id"`
+	Consume    float64   `gorm:"column:consume" json:"consume"`        // 对于Balance的消费
+	Hour       int       `gorm:"type:int;default:0;index" json:"hour"` // 消费小时 (0-23)，从CreateTime提取
+	CreateTime time.Time `gorm:"autoCreateTime" json:"create_time"`    // 精确消费时间
+	UpdateTime time.Time `gorm:"autoUpdateTime" json:"update_time"`
 }

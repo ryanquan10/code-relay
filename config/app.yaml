@@ -1,0 +1,31 @@
+internal:
+  host: ${INTERNAL_HOST:192.168.3.176}
+
+server:
+  port: 8087
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: account-rental-backend
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://a806698083.ticp.io:3306/codex_rental?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: admin
+    password: aaop77439la
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 40
+      auto-commit: true
+      idle-timeout: 30000
+      pool-name: AccountRentalHikariCP
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  redis:
+    host: a806698083.ticp.io
+    port: 6379
+    password: "31897197%12312A"
+    db: 0

@@ -1,6 +1,8 @@
 package client
 
 import (
+	"codex-relay/internal/service"
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -12,11 +14,55 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 type codexRelay struct{}
+
+type contextKey string
+
+const customerTokenContextKey contextKey = "customerToken"
+
+// 每个用户一个独立的计数器
+var (
+	customerCounters = make(map[string]*service.TrafficCounter)
+	countersMutex    sync.RWMutex
+)
+
+// getOrCreateCounter 获取或创建用户的流量计数器
+func getOrCreateCounter(customerToken string) *service.TrafficCounter {
+	countersMutex.RLock()
+	counter, exists := customerCounters[customerToken]
+	countersMutex.RUnlock()
+
+	if exists {
+		return counter
+	}
+
+	// 创建新计数器
+	countersMutex.Lock()
+	defer countersMutex.Unlock()
+
+	// 双重检查
+	if counter, exists := customerCounters[customerToken]; exists {
+		return counter
+	}
+
+	counter = service.NewTrafficCounter(customerToken)
+	customerCounters[customerToken] = counter
+	log.Printf("[计数器] 为用户 %s 创建新的流量计数器", maskKey(customerToken))
+	return counter
+}
+
+// maskKey 隐藏 key 的中间部分
+func maskKey(key string) string {
+	if len(key) <= 20 {
+		return "***"
+	}
+	return key[:15] + "..." + key[len(key)-8:]
+}
 
 func (c *codexRelay) Relay() {
 	var (
@@ -108,7 +154,17 @@ func (c *codexRelay) Relay() {
 
 		// 设置正确的 Host 头
 		req.Host = upstreamURL.Host
-		req.Header.Get("Authorization") //todo
+		customerToken := req.Header.Get("Authorization")
+
+		// 去掉 "Bearer " 前缀
+		if strings.HasPrefix(customerToken, "Bearer ") {
+			customerToken = strings.TrimPrefix(customerToken, "Bearer ")
+		}
+
+		// 将 customerToken 存入 context
+		ctx := context.WithValue(req.Context(), customerTokenContextKey, customerToken)
+		*req = *req.WithContext(ctx)
+
 		// todo 重置Authorization从数据库或者配置取
 		req.Header.Set("Authorization", "Bearer sk-ant-oat01-3pOZJw3eh_LRataPfuRKvSS2_7I99bUKdX3AfbRfPkoHx3RbzoYSEaAa2NC3pdyERGr-zZLyE5vSRA5UeVNPH9gopj2NYAA")
 		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
@@ -116,8 +172,8 @@ func (c *codexRelay) Relay() {
 		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
 
 		// 日志记录
-		log.Printf("转发请求: %s %s -> %s://%s%s",
-			req.Method, clientIP, upstreamURL.Scheme, upstreamURL.Host, req.URL.Path)
+		log.Printf("转发请求: %s %s -> %s://%s%s [用户: %s]",
+			req.Method, clientIP, upstreamURL.Scheme, upstreamURL.Host, req.URL.Path, maskKey(customerToken))
 
 		if logHeaders {
 			log.Printf("  请求头: %v", req.Header)
@@ -127,12 +183,30 @@ func (c *codexRelay) Relay() {
 		if strings.Contains(req.Header.Get("Accept"), "text/event-stream") {
 			log.Printf("  检测到 SSE 流式请求")
 		}
+
+		// 统计请求流量 (上行)
+		if req.Body != nil && req.Body != http.NoBody && customerToken != "" {
+			counter := getOrCreateCounter(customerToken)
+			req.Body = service.NewCountingReadCloser(req.Body, counter)
+		}
 	}
 
 	// 自定义响应修改
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		log.Printf("收到响应: %s %d %s",
-			resp.Request.URL.Path, resp.StatusCode, resp.Status)
+		// 从 context 获取 customerToken
+		customerToken := ""
+		if key := resp.Request.Context().Value(customerTokenContextKey); key != nil {
+			customerToken = key.(string)
+		}
+
+		// 统计响应流量 (下行)
+		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
+			counter := getOrCreateCounter(customerToken)
+			resp.Body = service.NewCountingReadCloser(resp.Body, counter)
+		}
+
+		log.Printf("收到响应: %s %d %s [用户: %s]",
+			resp.Request.URL.Path, resp.StatusCode, resp.Status, maskKey(customerToken))
 
 		if logHeaders {
 			log.Printf("  响应头: %v", resp.Header)
@@ -145,7 +219,16 @@ func (c *codexRelay) Relay() {
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.Printf("代理错误 [%s %s]: %v", r.Method, r.URL.Path, err)
 
-		// 返回详细错误信息
+		// 即使出错也尝试刷新计数器
+		if key := r.Context().Value(customerTokenContextKey); key != nil {
+			customerToken := key.(string)
+			if counter := getOrCreateCounter(customerToken); counter != nil {
+				if flushErr := counter.Flush(); flushErr != nil {
+					log.Printf("[警告] 刷新计数器失败: %v", flushErr)
+				}
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
 		fmt.Fprintf(w, `{"error": "代理转发失败", "details": "%v", "upstream": "%s"}`,
@@ -194,7 +277,20 @@ func (c *codexRelay) Relay() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
-		log.Println("收到退出信号，正在关闭服务器...")
+		log.Println("收到退出信号，正在刷新所有计数器...")
+
+		// 刷新所有用户的计数器
+		countersMutex.RLock()
+		for key, counter := range customerCounters {
+			if err := counter.Flush(); err != nil {
+				log.Printf("[警告] 刷新用户 %s 的计数器失败: %v", maskKey(key), err)
+			} else {
+				log.Printf("[完成] 用户 %s 的计数器已刷新", maskKey(key))
+			}
+		}
+		countersMutex.RUnlock()
+
+		log.Println("正在关闭服务器...")
 		_ = server.Close()
 		os.Exit(0)
 	}()
