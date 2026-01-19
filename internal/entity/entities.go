@@ -91,4 +91,5 @@ type Usage struct {
 	Hour       int       `gorm:"type:int;default:0;index" json:"hour"` // 消费小时 (0-23)，从CreateTime提取
 	CreateTime time.Time `gorm:"autoCreateTime" json:"create_time"`    // 精确消费时间
 	UpdateTime time.Time `gorm:"autoUpdateTime" json:"update_time"`
+	Version    uint      `gorm:"version"` // 乐观锁版本字段
 }

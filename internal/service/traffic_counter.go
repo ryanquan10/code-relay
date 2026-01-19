@@ -3,11 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
-	"github.com/redis/go-redis/v9"
-	"io"
 	"log"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/redis/go-redis/v9"
+	"io"
 
 	redisstore "codex-relay/internal/redis"
 )
@@ -29,21 +32,14 @@ const (
 	StreamMaxLen = 10000
 )
 
-// TokenUsageMessage Stream 中的消息格式
-type TokenUsageMessage struct {
-	customerToken string `json:"customer_key"`
-	Tokens        uint64 `json:"tokens"`
-	Date          string `json:"date"`
-	Timestamp     int64  `json:"timestamp"`
-}
-
-// TrafficCounter 流量计数器（简化版）
+// TrafficCounter 流量计数器（简化版，增强并发安全）
 type TrafficCounter struct {
 	TotalBytes    uint64 // 总字节数（上行+下行）
 	PendingTokens uint64 // 待刷新的 tokens
 	StartTime     time.Time
 	customerToken string
-	buffer        []byte // 内容缓存（用于精确计算）
+	buffer        []byte     // 内容缓存（用于精确计算）
+	bufferMu      sync.Mutex // buffer 并发保护
 }
 
 // NewTrafficCounter 初始化流量计数器
@@ -66,7 +62,11 @@ func (t *TrafficCounter) GetTotalBytes() uint64 {
 }
 
 // AppendContent 追加内容到缓存（用于精确计算 token）
+// 使用 mutex 保护并发安全
 func (t *TrafficCounter) AppendContent(data []byte) {
+	t.bufferMu.Lock()
+	defer t.bufferMu.Unlock()
+
 	if len(t.buffer) < 32768 { // 最多缓存 32KB
 		t.buffer = append(t.buffer, data...)
 	}
@@ -76,7 +76,11 @@ func (t *TrafficCounter) AppendContent(data []byte) {
 func (t *TrafficCounter) Reset() {
 	atomic.StoreUint64(&t.TotalBytes, 0)
 	atomic.StoreUint64(&t.PendingTokens, 0)
+
+	t.bufferMu.Lock()
 	t.buffer = nil
+	t.bufferMu.Unlock()
+
 	t.StartTime = time.Now()
 }
 
@@ -120,7 +124,7 @@ func BytesToTokens(bytes uint64) uint64 {
 		kb = 1
 	}
 	// 混合比例：30% 中文，70% 英文
-	avgTokensPerKB := uint64((float64(TokensPerKB) * 0.7) + (float64(TokensPerKBChinese) * 0.3))
+	avgTokensPerKB := uint64((TokensPerKB*7 + TokensPerKBChinese*3 + 5) / 10)
 	return kb * avgTokensPerKB
 }
 
@@ -128,13 +132,15 @@ func BytesToTokens(bytes uint64) uint64 {
 func (t *TrafficCounter) CheckAndFlushToStream() error {
 	totalBytes := t.GetTotalBytes()
 
-	// 优先使用缓存内容精确计算
+	// 优先使用缓存内容精确计算（需要加锁读取 buffer）
 	var totalTokens uint64
+	t.bufferMu.Lock()
 	if len(t.buffer) > 0 {
 		totalTokens = EstimateTokensFromText(string(t.buffer))
 	} else {
 		totalTokens = BytesToTokens(totalBytes)
 	}
+	t.bufferMu.Unlock()
 
 	// 计算新增的 tokens
 	currentPending := atomic.LoadUint64(&t.PendingTokens)
@@ -161,14 +167,20 @@ func (t *TrafficCounter) Flush() error {
 	totalBytes := t.GetTotalBytes()
 	currentPending := atomic.LoadUint64(&t.PendingTokens)
 
-	// 使用缓存内容精确计算
+	// 使用缓存内容精确计算（需要加锁读取 buffer）
 	var totalTokens uint64
-	if len(t.buffer) > 0 {
+	t.bufferMu.Lock()
+	bufferLen := len(t.buffer)
+	if bufferLen > 0 {
 		totalTokens = EstimateTokensFromText(string(t.buffer))
-		log.Printf("[Token] 精确计算: %s 使用了 %d tokens (基于 %d 字节内容分析)",
-			maskKey(t.customerToken), totalTokens, len(t.buffer))
 	} else {
 		totalTokens = BytesToTokens(totalBytes)
+	}
+	t.bufferMu.Unlock()
+
+	if bufferLen > 0 {
+		log.Printf("[Token] 精确计算: %s 使用了 %d tokens (基于 %d 字节内容分析)",
+			maskKey(t.customerToken), totalTokens, bufferLen)
 	}
 
 	remainingTokens := totalTokens - currentPending
@@ -186,7 +198,8 @@ func (t *TrafficCounter) Flush() error {
 	return nil
 }
 
-// SendTokenUsageToStream 将 token 使用量发送到 Redis Stream
+// SendTokenUsageToStream 将 token 使用量发送到 Redis Stream（简化版）
+// 仅传输核心字段：customer_key、tokens
 func SendTokenUsageToStream(customerToken string, tokens uint64) error {
 	client := redisstore.Client()
 	if client == nil {
@@ -194,20 +207,10 @@ func SendTokenUsageToStream(customerToken string, tokens uint64) error {
 	}
 	ctx := redisstore.Context()
 
-	// 构造消息
-	msg := TokenUsageMessage{
-		customerToken: customerToken,
-		Tokens:        tokens,
-		Date:          time.Now().Format("2006-01-02"),
-		Timestamp:     time.Now().Unix(),
-	}
-
-	// 序列化为 map
+	// 构建 map，仅包含计数数据
 	data := map[string]interface{}{
-		"customer_key": msg.customerToken,
-		"tokens":       msg.Tokens,
-		"date":         msg.Date,
-		"timestamp":    msg.Timestamp,
+		"customer_key": customerToken,
+		"tokens":       strconv.FormatUint(tokens, 10), // 仅tokens计数作为字符串
 	}
 
 	// 发送到 Stream（限制最大长度）
@@ -364,43 +367,75 @@ func (c *TokenUsageConsumer) processMessage(msg redis.XMessage) {
 	// 解析消息
 	customerToken, _ := msg.Values["customer_key"].(string)
 	tokensStr, _ := msg.Values["tokens"].(string)
-	date, _ := msg.Values["date"].(string)
 
-	var tokens uint64
-	fmt.Sscanf(tokensStr, "%d", &tokens)
+	tokens, err := strconv.ParseUint(tokensStr, 10, 64)
+	if err != nil {
+		log.Printf("✗ 解析 tokens 失败: %v", err)
+		return
+	}
 
-	log.Printf("[消费] 处理消息: 用户=%s, tokens=%d, 日期=%s",
-		maskKey(customerToken), tokens, date)
+	log.Printf("[消费] 处理消息: 用户=%s, tokens=%d",
+		maskKey(customerToken), tokens)
 
 	// TODO: 写入 MySQL
-	if err := c.writeToMySQL(customerToken, tokens, date); err != nil {
+	if err := c.writeToMySQL(customerToken, tokens, ""); err != nil {
 		log.Printf("✗ 写入 MySQL 失败: %v", err)
 	} else {
 		log.Printf("✓ 写入 MySQL 成功: %s +%d tokens", maskKey(customerToken), tokens)
 	}
 }
 
-// todo writeToMySQL 写入 MySQL   使用mapper 或者 service 写入到 sql
-func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, date string) error {
-	// TODO: 实现 MySQL 写入逻辑
-	// 示例 SQL:
-	// UPDATE user_usage
-	// SET tokens = tokens + ?, updated_at = NOW()
-	// WHERE customer_key = ? AND date = ?
+// writeToMySQL 写入 MySQL 使用 UsageService
+func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, hash string) error {
+	// 2. 将 tokens 转换为消费金额
+	// 这里使用一个简单的转换率：每 1000 tokens = 0.01 元
+	// 实际项目中应该根据产品定价和账户类型计算
+	consume := TokensToConsume(tokens)
 
-	// 如果记录不存在，需要先 INSERT
-	// INSERT INTO user_usage (customer_key, date, tokens, created_at, updated_at)
-	// VALUES (?, ?, ?, NOW(), NOW())
-	// ON DUPLICATE KEY UPDATE
-	// tokens = tokens + VALUES(tokens), updated_at = NOW()
+	// 3. 使用 UsageService 记录使用量（假设 RecordTokenUsage 支持 hash 参数）
+	usageService := NewUsageService()
+	if err := usageService.RecordTokenUsage(customerToken, tokens, consume); err != nil {
+		return fmt.Errorf("failed to record token usage: %w", err)
+	}
 
-	log.Printf("[模拟] 写入 MySQL: UPDATE user_usage SET tokens = tokens + %d WHERE customer_key = '%s' AND date = '%s'",
-		tokens, maskKey(customerToken), date)
+	log.Printf("[MySQL] 写入成功: token=%s, tokens=%d, consume=%.4f, hash=%s",
+		maskKey(customerToken), tokens, consume, hash)
 
 	return nil
 }
 
-func GetUsageFromRedis(customerToken string, dates []string) (int64, error) {
+// TokensToConsume 将 tokens 数量转换为消费金额
+// 转换率：每 1000 tokens = 0.01 元（即每个 token = 0.00001 元）
+// 实际项目中应该根据产品定价和账户类型计算
+func TokensToConsume(tokens uint64) float64 {
+	return float64(tokens) * 0.00001
+}
 
-	return tokens, nil
+// GetUsageFromMySQL 从 MySQL 查询指定日期的使用量
+// 返回消费金额（单位：元）
+func GetUsageFromMySQL(customerToken string, dates []string) (float64, error) {
+	usageService := NewUsageService()
+
+	// 如果 dates 为空，默认查询今天
+	if len(dates) == 0 {
+		totalConsume, err := usageService.GetTodayUsageByToken(customerToken)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get today's usage: %w", err)
+		}
+		return totalConsume, nil
+	}
+
+	// 查询指定日期的使用量
+	totalConsume, err := usageService.GetUsageByDates(customerToken, dates)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get usage by dates: %w", err)
+	}
+
+	return totalConsume, nil
+}
+
+// GetUsageFromRedis 从 MySQL 查询使用量（为了保持函数名向后兼容）
+// 返回消费金额（单位：元）
+func GetUsageFromRedis(customerToken string, dates []string) (float64, error) {
+	return GetUsageFromMySQL(customerToken, dates)
 }

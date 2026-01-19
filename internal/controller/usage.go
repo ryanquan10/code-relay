@@ -22,16 +22,18 @@ func Usage(c *gin.Context) {
 	if len(dates) == 0 {
 		dates = []string{time.Now().Format("2006-01-02")} // 默认当前日期
 	}
-	tokens, err := service.GetUsageFromRedis(customerToken, dates)
+
+	// 从 MySQL 查询使用量（返回消费金额，单位：元）
+	consume, err := service.GetUsageFromRedis(customerToken, dates)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read redis"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query usage", "details": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"customerToken": customerToken,
 		"date":          dates,
-		"tokens":        tokens,
+		"consume":       consume, // 消费金额（元）
 	})
 }
 
