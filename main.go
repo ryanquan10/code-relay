@@ -1,7 +1,6 @@
 package main
 
 import (
-	"embed"
 	"flag"
 	"log"
 
@@ -9,8 +8,6 @@ import (
 	"codex-relay/internal/redis"
 	"codex-relay/internal/server"
 )
-
-var frontendFS embed.FS
 
 func main() {
 	var configPath string
@@ -29,7 +26,7 @@ func main() {
 		_ = redis.Close()
 	}()
 
-	srv := server.New(cfg, frontendFS)
+	srv := server.New(cfg, FrontendFS)
 	if err := srv.Run(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
