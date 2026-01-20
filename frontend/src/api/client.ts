@@ -54,6 +54,34 @@ export const sourceAPI = {
   delete: (id: number) => api.delete(`/sources/${id}`),
 };
 
+// 产品管理
+export interface Product {
+  id: number;
+  product_code: string;
+  product_name: string;
+  account_type: string;
+  category: string;
+  price: number;
+  original_price?: number;
+  validity_days: number;
+  shared_limit: number;
+  sales_count: number;
+  auto_delivery: boolean;
+  sort_order: number;
+  status: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  source_ids: number[];
+}
+
+export const productAPI = {
+  list: () => api.get<any, Product[]>('/products'),
+  create: (data: Partial<Product>) => api.post<any, Product>('/products', data),
+  update: (id: number, data: Partial<Product>) => api.put<any, Product>(`/products/${id}`, data),
+  delete: (id: number) => api.delete(`/products/${id}`),
+};
+
 // 账号管理
 export interface Account {
   id: number;

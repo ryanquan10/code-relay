@@ -1,8 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-// 写死的管理员密码（测试用）
-const ADMIN_PASSWORD = 'admin123';
+import axios from 'axios';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -10,26 +8,38 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    setTimeout(() => {
-      if (password === ADMIN_PASSWORD) {
+    try {
+      // 调用后端登录 API
+      const response = await axios.post('/api/auth/login', {
+        password: password
+      });
+
+      if (response.data.success) {
         // 登录成功，保存用户信息到 localStorage
         const user = {
-          role: 'admin',
-          username: 'admin',
+          role: response.data.user.role,
+          username: response.data.user.username,
           loginTime: new Date().toISOString()
         };
         localStorage.setItem('user', JSON.stringify(user));
         navigate('/admin');
       } else {
-        setError('密码错误');
+        setError(response.data.message || '登录失败');
       }
+    } catch (err: any) {
+      if (err.response?.data?.message) {
+        setError(err.response.data.message);
+      } else {
+        setError('登录失败，请检查网络连接');
+      }
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   return (
@@ -71,10 +81,6 @@ export default function Login() {
               {loading ? '登录中...' : '登录'}
             </button>
           </form>
-
-          <div className="mt-6 text-center text-sm text-gray-500">
-            <p>测试环境 - 密码: {ADMIN_PASSWORD}</p>
-          </div>
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import SourcesTab from '../components/SourcesTab';
+import ProductsTab from '../components/ProductsTab';
 import AccountsTab from '../components/AccountsTab';
 import UsageTab from '../components/UsageTab';
 
@@ -13,6 +14,7 @@ type MenuConfig = {
 
 const menuConfig: Record<string, MenuConfig> = {
   sources: { title: '发卡来源管理', component: SourcesTab },
+  products: { title: '产品管理', component: ProductsTab },
   accounts: { title: '账号管理', component: AccountsTab },
   usage: { title: '使用量查看', component: UsageTab },
 };

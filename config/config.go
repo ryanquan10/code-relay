@@ -11,10 +11,28 @@ import (
 	"github.com/spf13/viper"
 )
 
+// 全局配置实例
+var globalConfig *Config
+
+// SetConfig 设置全局配置
+func SetConfig(cfg Config) {
+	globalConfig = &cfg
+}
+
+// GetConfig 获取全局配置
+func GetConfig() *Config {
+	return globalConfig
+}
+
 type Config struct {
 	Internal InternalConfig `mapstructure:"internal"`
 	Server   ServerConfig   `mapstructure:"server"`
 	Spring   SpringConfig   `mapstructure:"spring"`
+	Admin    AdminConfig    `mapstructure:"admin"`
+}
+
+type AdminConfig struct {
+	Password string `mapstructure:"password"`
 }
 
 type InternalConfig struct {
@@ -102,6 +120,9 @@ func Default() Config {
 				DB:       0,
 			},
 		},
+		Admin: AdminConfig{
+			Password: "admin1237788",
+		},
 	}
 }
 
@@ -161,6 +182,7 @@ func applyDefaults(v *viper.Viper, cfg Config) {
 	v.SetDefault("spring.redis.port", cfg.Spring.Redis.Port)
 	v.SetDefault("spring.redis.password", cfg.Spring.Redis.Password)
 	v.SetDefault("spring.redis.db", cfg.Spring.Redis.DB)
+	v.SetDefault("admin.password", cfg.Admin.Password)
 }
 
 func bindEnvs(v *viper.Viper) {

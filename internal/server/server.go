@@ -61,6 +61,12 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 		internal.GET("/usage", controller.Usage)
 	}
 
+	// 认证相关路由（无需认证）
+	auth := api.Group("/auth")
+	{
+		auth.POST("/login", controller.Login)
+	}
+
 	admin := api.Group("/admin")
 	{
 		// 货源管理
@@ -68,6 +74,12 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 		admin.POST("/sources", controller.CreateSource)
 		admin.PUT("/sources/:id", controller.UpdateSource)
 		admin.DELETE("/sources/:id", controller.DeleteSource)
+
+		// 产品管理
+		admin.GET("/products", controller.ListProducts)
+		admin.POST("/products", controller.CreateProduct)
+		admin.PUT("/products/:id", controller.UpdateProduct)
+		admin.DELETE("/products/:id", controller.DeleteProduct)
 
 		// 账号管理
 		admin.GET("/accounts", controller.ListAccounts)
@@ -100,6 +112,7 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 
 		if strings.HasPrefix(path, "/api/") ||
 			strings.HasPrefix(path, "/admin/") ||
+			strings.HasPrefix(path, "/auth/") ||
 			strings.HasPrefix(path, "/internal/") {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": "resource not found",

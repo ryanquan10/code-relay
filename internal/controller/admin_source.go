@@ -3,6 +3,7 @@ package controller
 import (
 	"codex-relay/internal/entity"
 	"codex-relay/internal/mysql"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -13,15 +14,19 @@ import (
 func ListSources(c *gin.Context) {
 	db := mysql.DB()
 	if db == nil {
+		log.Println("[ListSources] Error: database not initialized")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
 		return
 	}
 
 	var sources []entity.AccountSource
 	if err := db.Find(&sources).Error; err != nil {
+		log.Printf("[ListSources] Error querying sources: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	log.Printf("[ListSources] Found %d sources", len(sources))
 
 	// 转换为前端需要的格式
 	type SourceResponse struct {

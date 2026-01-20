@@ -19,7 +19,15 @@ import (
 	"time"
 )
 
-type codexRelay struct{}
+type codexRelay struct{
+	tokenConvertService *service.TokenConvertService
+}
+
+func NewCodexRelay() *codexRelay {
+	return &codexRelay{
+		tokenConvertService: service.NewTokenConvertService(),
+	}
+}
 
 type contextKey string
 
@@ -165,8 +173,20 @@ func (c *codexRelay) Relay() {
 		ctx := context.WithValue(req.Context(), customerTokenContextKey, customerToken)
 		*req = *req.WithContext(ctx)
 
-		// todo 重置Authorization从数据库或者配置取
-		req.Header.Set("Authorization", "Bearer sk-ant-oat01-3pOZJw3eh_LRataPfuRKvSS2_7I99bUKdX3AfbRfPkoHx3RbzoYSEaAa2NC3pdyERGr-zZLyE5vSRA5UeVNPH9gopj2NYAA")
+		// 使用 token_convert_service 转换 token 和上流地址
+		upstreamConfig, err := c.tokenConvertService.ConvertToken(customerToken)
+		if err != nil {
+			log.Printf("[TokenConvert] 转换失败: %v, 使用默认配置", err)
+			// 如果转换失败，使用默认的 token (兜底方案)
+			req.Header.Set("Authorization", "Bearer sk-ant-oat01-3pOZJw3eh_LRataPfuRKvSS2_7I99bUKdX3AfbRfPkoHx3RbzoYSEaAa2NC3pdyERGr-zZLyE5vSRA5UeVNPH9gopj2NYAA")
+		} else {
+			// 使用转换后的上流 token
+			req.Header.Set("Authorization", "Bearer "+upstreamConfig.UpstreamToken)
+			log.Printf("[TokenConvert] 使用上流 URL: %s", upstreamConfig.UpstreamURL)
+			// 注意：这里可以根据 upstreamConfig.UpstreamURL 动态修改请求的目标地址
+			// 但由于当前的反向代理设计是在启动时固定上游地址，如果需要动态路由，
+			// 需要重构代理逻辑，使用多个上游或者动态创建代理
+		}
 		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
 		req.Header.Set("X-Forwarded-Proto", "https")
 		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
@@ -308,4 +328,4 @@ func (c *codexRelay) Relay() {
 	}
 }
 
-var Codex = &codexRelay{}
+var Codex = NewCodexRelay()

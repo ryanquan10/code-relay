@@ -47,6 +47,7 @@ type Product struct {
 	UpdateBy         *int64    `db:"update_by" json:"update_by"`
 }
 
+//中间表
 // ProductSource maps to product_source (product-source mapping).
 type ProductSource struct {
 	ID            int64           `db:"id" json:"id"`
