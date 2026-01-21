@@ -38,7 +38,7 @@ func ListUsages(c *gin.Context) {
 	for _, u := range usages {
 		response = append(response, UsageResponse{
 			ID:          u.ID,
-			AccountID:   u.AccountId,
+			AccountID:   u.AccountID,
 			Consume:     u.Consume,
 			Date:        u.CreateTime.Format("2006-01-02"),
 			CreatedAt:   u.CreateTime.Format("2006-01-02 15:04:05"),

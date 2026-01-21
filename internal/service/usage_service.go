@@ -38,13 +38,11 @@ func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, con
 
 	// 2. 获取当前小时
 	now := time.Now()
-	hour := now.Hour()
 
 	// 3. 创建 Usage 记录
 	usage := &entity.Usage{
-		AccountId:  account.ID,
+		AccountID:  account.ID,
 		Consume:    consume,
-		Hour:       hour,
 		CreateTime: now,
 		UpdateTime: now,
 	}
@@ -67,8 +65,8 @@ func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, con
 		}
 	}
 
-	log.Printf("[Usage] 记录成功: account_id=%d, tokens=%d, consume=%.4f, hour=%d",
-		account.ID, tokens, consume, hour)
+	log.Printf("[Usage] 记录成功: account_id=%d, tokens=%d, consume=%.4f",
+		account.ID, tokens, consume)
 
 	return nil
 }

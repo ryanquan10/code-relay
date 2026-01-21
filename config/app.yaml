@@ -12,7 +12,7 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://a806698083.ticp.io:3306/codex_rental?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useUnicode=true
+    url: "jdbc:mysql://a806698083.ticp.io:3306/codex_rental?charset=utf8mb4&parseTime=True&loc=Asia%2FShanghai"
     username: admin
     password: aaop77439la
     hikari:

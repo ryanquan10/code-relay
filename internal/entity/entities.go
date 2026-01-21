@@ -5,92 +5,99 @@ import (
 	"time"
 )
 
-// AccountSource maps to account_source (account suppliers).
+// AccountSource 账号供应商（存储上游地址）
 type AccountSource struct {
-	ID          int64     `db:"id" json:"id"`
-	SourceName  string    `db:"source_name" json:"source_name"`
-	SourceType  string    `db:"source_type" json:"source_type"`
-	HandlerType string    `db:"handler_type" json:"handler_type"`
-	APIURL      *string   `db:"api_url" json:"api_url"`
-	APIKey      *string   `db:"api_key" json:"api_key"`
-	Priority    int       `db:"priority" json:"priority"`
-	AutoRental  int       `db:"auto_rental" json:"auto_rental"`
-	Status      int       `db:"status" json:"status"`
-	Remark      *string   `db:"remark" json:"remark"`
-	CreateTime  time.Time `db:"create_time" json:"create_time"`
-	UpdateTime  time.Time `db:"update_time" json:"update_time"`
+	ID         int64           `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	SourceName string          `db:"source_name" json:"source_name" gorm:"type:varchar(100);not null"`
+	SourceType string          `db:"source_type" json:"source_type" gorm:"type:varchar(50);not null"`
+	Config     json.RawMessage `db:"config" json:"config" gorm:"type:json"` // 上游地址、API配置等
+	Priority   int             `db:"priority" json:"priority" gorm:"default:1"`
+	AutoRental bool            `db:"auto_rental" json:"auto_rental" gorm:"default:false"`
+	Status     int             `db:"status" json:"status" gorm:"default:1"`
+	Remark     *string         `db:"remark" json:"remark" gorm:"type:text"`
+	CreateTime time.Time       `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime time.Time       `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
 
-// Product maps to product.
+func (AccountSource) TableName() string {
+	return "account_source"
+}
+
+// Product 产品（合并了原 ProductSource 的业务字段）
 type Product struct {
-	ID               int64     `db:"id" json:"id"`
-	ProductCode      string    `db:"product_code" json:"product_code"`
-	ProductName      string    `db:"product_name" json:"product_name"`
-	AccountType      string    `db:"account_type" json:"account_type"`
-	Category         *string   `db:"category" json:"category"`
-	Icon             *string   `db:"icon" json:"icon"`
-	ImageURL         *string   `db:"image_url" json:"image_url"`
-	Description      *string   `db:"description" json:"description"`
-	Price            float64   `db:"price" json:"price"`
-	OriginalPrice    *float64  `db:"original_price" json:"original_price"`
-	ValidityDays     int       `db:"validity_days" json:"validity_days"`
-	SharedLimit      int       `db:"shared_limit" json:"shared_limit"`
-	SalesCount       int       `db:"sales_count" json:"sales_count"`
-	AutoDelivery     int       `db:"auto_delivery" json:"auto_delivery"`
-	ContactInfo      *string   `db:"contact_info" json:"contact_info"`
-	UsageInstruction *string   `db:"usage_instruction" json:"usage_instruction"`
-	SortOrder        int       `db:"sort_order" json:"sort_order"`
-	Status           int       `db:"status" json:"status"`
-	CreateTime       time.Time `db:"create_time" json:"create_time"`
-	UpdateTime       time.Time `db:"update_time" json:"update_time"`
-	CreateBy         *int64    `db:"create_by" json:"create_by"`
-	UpdateBy         *int64    `db:"update_by" json:"update_by"`
+	ID               int64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	ProductCode      string    `db:"product_code" json:"product_code" gorm:"type:varchar(100);uniqueIndex;not null"`
+	ProductName      string    `db:"product_name" json:"product_name" gorm:"type:varchar(200);not null"`
+	AccountType      string    `db:"account_type" json:"account_type" gorm:"type:varchar(100)"`
+	Category         *string   `db:"category" json:"category" gorm:"type:varchar(100);index"`
+	Icon             *string   `db:"icon" json:"icon" gorm:"type:varchar(255)"`
+	ImageURL         *string   `db:"image_url" json:"image_url" gorm:"type:varchar(255)"`
+	Description      *string   `db:"description" json:"description" gorm:"type:text"`
+	Price            float64   `db:"price" json:"price" gorm:"type:decimal(10,2);default:0"`
+	OriginalPrice    *float64  `db:"original_price" json:"original_price" gorm:"type:decimal(10,2)"`
+	SalesCount       int       `db:"sales_count" json:"sales_count" gorm:"default:0"`
+	ContactInfo      *string   `db:"contact_info" json:"contact_info" gorm:"type:text"`
+	UsageInstruction *string   `db:"usage_instruction" json:"usage_instruction" gorm:"type:text"`
+	ValidityDays     int       `db:"validity_days" json:"validity_days" gorm:"default:9999"`
+	SharedLimit      int       `db:"shared_limit" json:"shared_limit" gorm:"default:0"`
+
+	// 原 ProductSource 的字段
+	SourceID       int64   `db:"source_id" json:"source_id" gorm:"not null;index"`
+	CostPrice      float64 `db:"cost_price" json:"cost_price" gorm:"type:decimal(10,2);default:0"`
+	DefaultBalance float64 `db:"default_balance" json:"default_balance" gorm:"type:decimal(10,2);default:0"`
+	Stock          int     `db:"stock" json:"stock" gorm:"default:0"`
+
+	AutoDelivery bool      `db:"auto_delivery" json:"auto_delivery" gorm:"default:false"`
+	SortOrder    int       `db:"sort_order" json:"sort_order" gorm:"default:0"`
+	Status       int       `db:"status" json:"status" gorm:"default:1;index"`
+	Version      int       `db:"version" json:"version" gorm:"default:0"` // 乐观锁：库存
+	CreateTime   time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime   time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
 
-//中间表
-// ProductSource maps to product_source (product-source mapping).
-type ProductSource struct {
-	ID            int64           `db:"id" json:"id"`
-	ProductID     int64           `db:"product_id" json:"product_id"`
-	SourceID      int64           `db:"source_id" json:"source_id"`
-	UpstreamURL   *string         `db:"upstream_url" json:"upstream_url"`
-	UpstreamParam json.RawMessage `db:"upstream_param" json:"upstream_param"`
-	Priority      int             `db:"priority" json:"priority"`
-	Weight        int             `db:"weight" json:"weight"`
-	CostPrice     *float64        `db:"cost_price" json:"cost_price"`
-	Stock         int             `db:"stock" json:"stock"`
-	Status        int             `db:"status" json:"status"`
-	Remark        *string         `db:"remark" json:"remark"`
-	CreateTime    time.Time       `db:"create_time" json:"create_time"`
-	UpdateTime    time.Time       `db:"update_time" json:"update_time"`
+func (Product) TableName() string {
+	return "product"
 }
 
-// Account maps to account (account instances).
+// Account 账号实例
 type Account struct {
-	ID uint64 `db:"id" json:"id"`
-	//CardNumber       string     `db:"card_number" json:"card_number"`
-	AccountEmail     string     `db:"account_email" json:"account_email"`       //没有则为空 临时account
-	AccountPassword  *string    `db:"account_password" json:"account_password"` //没有则为空 临时account
-	Token            *string    `db:"token" json:"token"`
-	ProductID        int64      `db:"product_id" json:"product_id"`
-	SourceID         int64      `db:"source_id" json:"source_id"`
-	UserID           *uint64    `db:"user_id" json:"user_id"` //没有则为空
-	Status           string     `db:"status" json:"status"`
-	ExpireDate       *time.Time `db:"expire_date" json:"expire_date"`
-	Balance          float64    `db:"balance" json:"balance"`
+	ID               uint64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	AccountEmail     string     `db:"account_email" json:"account_email" gorm:"type:varchar(255);index"`
+	AccountPassword  *string    `db:"account_password" json:"account_password" gorm:"type:varchar(255)"`
+	Token            *string    `db:"token" json:"token" gorm:"type:varchar(255);uniqueIndex"`
+	ProductID        int64      `db:"product_id" json:"product_id" gorm:"not null;index"`
+	SourceID         int64      `db:"source_id" json:"source_id" gorm:"not null;index"`
+	UserID           *uint64    `db:"user_id" json:"user_id" gorm:"index"`
+	Status           string     `db:"status" json:"status" gorm:"type:varchar(50);default:'active';index"`
+	ExpireDate       *time.Time `db:"expire_date" json:"expire_date" gorm:"index"`
+	Balance          float64    `db:"balance" json:"balance" gorm:"type:decimal(10,2);default:0"`
 	LastRechargeTime *time.Time `db:"last_recharge_time" json:"last_recharge_time"`
-	Remark           *string    `db:"remark" json:"remark"`
-	CreateTime       time.Time  `db:"create_time" json:"create_time"`
-	UpdateTime       time.Time  `db:"update_time" json:"update_time"`
+	Remark           *string    `db:"remark" json:"remark" gorm:"type:text"`
+	Version          int        `db:"version" json:"version" gorm:"default:0"` // 乐观锁：余额
+	CreateTime       time.Time  `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime       time.Time  `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
 
-// 一个小时增加一条记录
+func (Account) TableName() string {
+	return "account"
+}
+
+// Usage 使用量记录
 type Usage struct {
 	ID         uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	AccountId  uint64    `gorm:"column:account_id" json:"account_id"`
-	Consume    float64   `gorm:"column:consume" json:"consume"`        // 对于Balance的消费
-	Hour       int       `gorm:"type:int;default:0;index" json:"hour"` // 消费小时 (0-23)，从CreateTime提取
-	CreateTime time.Time `gorm:"autoCreateTime" json:"create_time"`    // 精确消费时间
+	AccountID  uint64    `gorm:"column:account_id;not null;index:idx_account_time" json:"account_id"`
+	Consume    float64   `gorm:"column:consume;type:decimal(10,2);default:0" json:"consume"`
+	CreateTime time.Time `gorm:"autoCreateTime;index:idx_account_time" json:"create_time"`
 	UpdateTime time.Time `gorm:"autoUpdateTime" json:"update_time"`
-	Version    uint      `gorm:"version"` // 乐观锁版本字段
+}
+
+func (Usage) TableName() string {
+	return "usage"
+}
+
+// AccountSourceConfig 供应商配置（存储在 AccountSource.Config JSON 字段中）
+type AccountSourceConfig struct {
+	APIURL      *string `json:"api_url"`       // 上游地址
+	APIKey      *string `json:"api_key"`
+	HandlerType string  `json:"handler_type"` // 处理器类型
 }

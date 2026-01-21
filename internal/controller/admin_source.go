@@ -3,6 +3,7 @@ package controller
 import (
 	"codex-relay/internal/entity"
 	"codex-relay/internal/mysql"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -85,14 +86,22 @@ func CreateSource(c *gin.Context) {
 		status = 1
 	}
 
-	source := entity.AccountSource{
-		SourceName:  req.Name,
-		SourceType:  "manual",
+	// 创建默认的 Config JSON
+	config := entity.AccountSourceConfig{
+		APIURL:      nil,
+		APIKey:      nil,
 		HandlerType: "manual",
-		Priority:    1,
-		AutoRental:  0,
-		Status:      status,
-		Remark:      &req.Description,
+	}
+	configJSON, _ := json.Marshal(config)
+
+	source := entity.AccountSource{
+		SourceName: req.Name,
+		SourceType: "manual",
+		Config:     configJSON,
+		Priority:   1,
+		AutoRental: false,
+		Status:     status,
+		Remark:     &req.Description,
 	}
 
 	if err := db.Create(&source).Error; err != nil {

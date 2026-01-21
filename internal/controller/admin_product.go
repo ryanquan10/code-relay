@@ -61,16 +61,8 @@ func ListProducts(c *gin.Context) {
 			description = *p.Description
 		}
 
-		autoDelivery := p.AutoDelivery == 1
-
-		// 查询关联的货源
-		var productSources []entity.ProductSource
-		db.Where("product_id = ?", p.ID).Find(&productSources)
-
-		sourceIDs := make([]int64, 0, len(productSources))
-		for _, ps := range productSources {
-			sourceIDs = append(sourceIDs, ps.SourceID)
-		}
+		// 新表结构：Product 直接包含 SourceID，返回单个 SourceID
+		sourceIDs := []int64{p.SourceID}
 
 		response = append(response, ProductResponse{
 			ID:            p.ID,
@@ -83,7 +75,7 @@ func ListProducts(c *gin.Context) {
 			ValidityDays:  p.ValidityDays,
 			SharedLimit:   p.SharedLimit,
 			SalesCount:    p.SalesCount,
-			AutoDelivery:  autoDelivery,
+			AutoDelivery:  p.AutoDelivery,
 			SortOrder:     p.SortOrder,
 			Status:        status,
 			Description:   description,
@@ -130,11 +122,6 @@ func CreateProduct(c *gin.Context) {
 		status = 1
 	}
 
-	autoDelivery := 0
-	if req.AutoDelivery {
-		autoDelivery = 1
-	}
-
 	category := &req.Category
 	if req.Category == "" {
 		category = nil
@@ -143,6 +130,12 @@ func CreateProduct(c *gin.Context) {
 	description := &req.Description
 	if req.Description == "" {
 		description = nil
+	}
+
+	// 新表结构：Product 直接包含 SourceID（取第一个）
+	var sourceID int64 = 0
+	if len(req.SourceIDs) > 0 {
+		sourceID = req.SourceIDs[0]
 	}
 
 	product := entity.Product{
@@ -155,38 +148,18 @@ func CreateProduct(c *gin.Context) {
 		ValidityDays:  req.ValidityDays,
 		SharedLimit:   req.SharedLimit,
 		SalesCount:    0,
-		AutoDelivery:  autoDelivery,
+		AutoDelivery:  req.AutoDelivery,
 		SortOrder:     req.SortOrder,
 		Status:        status,
 		Description:   description,
+		SourceID:      sourceID,
 	}
 
-	// 使用事务创建产品和关联货源
-	tx := db.Begin()
-	if err := tx.Create(&product).Error; err != nil {
-		tx.Rollback()
+	if err := db.Create(&product).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 创建产品-货源关联
-	for _, sourceID := range req.SourceIDs {
-		productSource := entity.ProductSource{
-			ProductID: product.ID,
-			SourceID:  sourceID,
-			Priority:  1,
-			Weight:    1,
-			Stock:     0,
-			Status:    1,
-		}
-		if err := tx.Create(&productSource).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-
-	tx.Commit()
 	c.JSON(http.StatusOK, gin.H{"id": product.ID})
 }
 
@@ -254,11 +227,7 @@ func UpdateProduct(c *gin.Context) {
 	if req.SharedLimit >= 0 {
 		product.SharedLimit = req.SharedLimit
 	}
-	if req.AutoDelivery {
-		product.AutoDelivery = 1
-	} else {
-		product.AutoDelivery = 0
-	}
+	product.AutoDelivery = req.AutoDelivery
 	if req.SortOrder >= 0 {
 		product.SortOrder = req.SortOrder
 	}
@@ -273,39 +242,16 @@ func UpdateProduct(c *gin.Context) {
 		product.Description = &req.Description
 	}
 
-	// 使用事务更新产品和关联货源
-	tx := db.Begin()
-	if err := tx.Save(&product).Error; err != nil {
-		tx.Rollback()
+	// 更新 SourceID（取第一个）
+	if len(req.SourceIDs) > 0 {
+		product.SourceID = req.SourceIDs[0]
+	}
+
+	if err := db.Save(&product).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 删除旧的产品-货源关联
-	if err := tx.Where("product_id = ?", product.ID).Delete(&entity.ProductSource{}).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 创建新的产品-货源关联
-	for _, sourceID := range req.SourceIDs {
-		productSource := entity.ProductSource{
-			ProductID: product.ID,
-			SourceID:  sourceID,
-			Priority:  1,
-			Weight:    1,
-			Stock:     0,
-			Status:    1,
-		}
-		if err := tx.Create(&productSource).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-
-	tx.Commit()
 	c.JSON(http.StatusOK, gin.H{"id": product.ID})
 }
 
@@ -323,23 +269,11 @@ func DeleteProduct(c *gin.Context) {
 		return
 	}
 
-	// 使用事务删除产品和关联货源
-	tx := db.Begin()
-
-	// 删除产品-货源关联
-	if err := tx.Where("product_id = ?", id).Delete(&entity.ProductSource{}).Error; err != nil {
-		tx.Rollback()
+	// 直接删除产品（新表结构无需删除关联）
+	if err := db.Delete(&entity.Product{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 删除产品
-	if err := tx.Delete(&entity.Product{}, id).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	tx.Commit()
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }

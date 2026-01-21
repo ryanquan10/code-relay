@@ -1,16 +1,17 @@
 package service
 
 import (
+	"codex-relay/internal/entity"
 	"codex-relay/internal/repository"
+	"encoding/json"
 	"fmt"
 	"log"
 )
 
 // TokenConvertService 负责将客户端 token 转换为上流服务器地址和上流 token
 type TokenConvertService struct {
-	accountRepo        *repository.AccountRepository
-	accountSourceRepo  *repository.AccountSourceRepository
-	productSourceRepo  *repository.ProductSourceRepository
+	accountRepo       *repository.AccountRepository
+	accountSourceRepo *repository.AccountSourceRepository
 }
 
 // UpstreamConfig 包含上流服务器的配置信息
@@ -24,16 +25,14 @@ func NewTokenConvertService() *TokenConvertService {
 	return &TokenConvertService{
 		accountRepo:       repository.NewAccountRepository(),
 		accountSourceRepo: repository.NewAccountSourceRepository(),
-		productSourceRepo: repository.NewProductSourceRepository(),
 	}
 }
 
 // ConvertToken 根据客户端 token 获取上流服务器配置
 // 逻辑：
 // 1. 使用 token 从 Account 表查找账号
-// 2. 从 Account 获取 ProductID 和 SourceID
-// 3. 使用 ProductID 和 SourceID 从 ProductSource 表查找上流配置
-// 4. 使用 SourceID 从 AccountSource 表查找上流 token (API Key)
+// 2. 从 Account 获取 SourceID
+// 3. 使用 SourceID 从 AccountSource 表查找上流配置（解析 Config JSON）
 func (s *TokenConvertService) ConvertToken(customerToken string) (*UpstreamConfig, error) {
 	if customerToken == "" {
 		return nil, fmt.Errorf("customer token is empty")
@@ -53,25 +52,7 @@ func (s *TokenConvertService) ConvertToken(customerToken string) (*UpstreamConfi
 	log.Printf("[TokenConvert] 找到账号 ID=%d, ProductID=%d, SourceID=%d",
 		account.ID, account.ProductID, account.SourceID)
 
-	// 2. 根据 ProductID 和 SourceID 查找 ProductSource (获取上流 URL)
-	productSource, err := s.productSourceRepo.GetByProductAndSource(account.ProductID, account.SourceID)
-	if err != nil {
-		log.Printf("[TokenConvert] 查询 ProductSource 失败: %v", err)
-		return nil, fmt.Errorf("failed to find product_source: %w", err)
-	}
-	if productSource == nil {
-		log.Printf("[TokenConvert] 未找到 ProductSource (ProductID=%d, SourceID=%d)",
-			account.ProductID, account.SourceID)
-		return nil, fmt.Errorf("product_source not found")
-	}
-
-	// 检查 upstream_url 是否存在
-	if productSource.UpstreamURL == nil || *productSource.UpstreamURL == "" {
-		log.Printf("[TokenConvert] ProductSource 的 UpstreamURL 为空 (ID=%d)", productSource.ID)
-		return nil, fmt.Errorf("upstream_url is empty in product_source")
-	}
-
-	// 3. 根据 SourceID 查找 AccountSource (获取上流 API Key)
+	// 2. 根据 SourceID 查找 AccountSource (获取上流配置)
 	accountSource, err := s.accountSourceRepo.GetByID(account.SourceID)
 	if err != nil {
 		log.Printf("[TokenConvert] 查询 AccountSource 失败: %v", err)
@@ -82,15 +63,30 @@ func (s *TokenConvertService) ConvertToken(customerToken string) (*UpstreamConfi
 		return nil, fmt.Errorf("account_source not found")
 	}
 
+	// 3. 解析 Config JSON 获取 APIURL 和 APIKey
+	var config entity.AccountSourceConfig
+	if len(accountSource.Config) > 0 {
+		if err := json.Unmarshal(accountSource.Config, &config); err != nil {
+			log.Printf("[TokenConvert] 解析 AccountSource Config 失败: %v", err)
+			return nil, fmt.Errorf("failed to parse account_source config: %w", err)
+		}
+	}
+
+	// 检查 api_url 是否存在
+	if config.APIURL == nil || *config.APIURL == "" {
+		log.Printf("[TokenConvert] AccountSource 的 APIURL 为空 (ID=%d)", accountSource.ID)
+		return nil, fmt.Errorf("api_url is empty in account_source config")
+	}
+
 	// 检查 api_key 是否存在
-	if accountSource.APIKey == nil || *accountSource.APIKey == "" {
+	if config.APIKey == nil || *config.APIKey == "" {
 		log.Printf("[TokenConvert] AccountSource 的 APIKey 为空 (ID=%d)", accountSource.ID)
-		return nil, fmt.Errorf("api_key is empty in account_source")
+		return nil, fmt.Errorf("api_key is empty in account_source config")
 	}
 
 	upstreamConfig := &UpstreamConfig{
-		UpstreamURL:   *productSource.UpstreamURL,
-		UpstreamToken: *accountSource.APIKey,
+		UpstreamURL:   *config.APIURL,
+		UpstreamToken: *config.APIKey,
 	}
 
 	log.Printf("[TokenConvert] 转换成功: CustomerToken=%s -> UpstreamURL=%s, UpstreamToken=%s",

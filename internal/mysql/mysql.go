@@ -2,6 +2,8 @@ package mysql
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"gorm.io/driver/mysql"
@@ -16,6 +18,11 @@ var db *gorm.DB
 // InitFromConfig 从配置初始化 MySQL 连接
 func InitFromConfig(cfg config.DatasourceConfig) error {
 	dsn := convertJdbcUrlToGormDsn(cfg.URL, cfg.Username, cfg.Password)
+
+	// 打印连接信息日志
+	fmt.Printf("[MySQL] JDBC URL: %s\n", cfg.URL)
+	fmt.Printf("[MySQL] Username: %s\n", cfg.Username)
+	fmt.Printf("[MySQL] Generated DSN: %s\n", dsn)
 
 	gormConfig := &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
@@ -62,11 +69,35 @@ func Close() error {
 // 例如: jdbc:mysql://host:port/dbname?params -> user:password@tcp(host:port)/dbname?params
 func convertJdbcUrlToGormDsn(jdbcUrl, username, password string) string {
 	// 移除 "jdbc:mysql://" 前缀
-	dsn := jdbcUrl
-	if len(dsn) > 13 && dsn[:13] == "jdbc:mysql://" {
-		dsn = dsn[13:]
+	dsn := strings.TrimPrefix(jdbcUrl, "jdbc:mysql://")
+
+	// 分离主机、端口、数据库和参数
+	hostPort := dsn
+	dbName := ""
+	params := ""
+
+	// 分离路径和查询参数
+	if idx := strings.Index(dsn, "?"); idx >= 0 {
+		params = dsn[idx+1:]
+		dsn = dsn[:idx]
 	}
 
+	// 分离主机和数据库名
+	if idx := strings.Index(dsn, "/"); idx >= 0 {
+		hostPort = dsn[:idx]
+		dbName = dsn[idx+1:]
+	}
+
+	// URL encode username and password to handle special characters
+	encodedUsername := url.QueryEscape(username)
+	encodedPassword := url.QueryEscape(password)
+
 	// 构建 GORM DSN: user:password@tcp(host:port)/dbname?params
-	return fmt.Sprintf("%s:%s@tcp(%s)", username, password, dsn)
+	if dbName == "" && params == "" {
+		return fmt.Sprintf("%s:%s@tcp(%s)", encodedUsername, encodedPassword, hostPort)
+	}
+	if params == "" {
+		return fmt.Sprintf("%s:%s@tcp(%s)/%s", encodedUsername, encodedPassword, hostPort, dbName)
+	}
+	return fmt.Sprintf("%s:%s@tcp(%s)/%s?%s", encodedUsername, encodedPassword, hostPort, dbName, params)
 }

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(go run -ldflags=\"-s -w\" .)",
+      "Bash(./code-relay.exe)"
     ],
     "deny": [],
     "ask": []
