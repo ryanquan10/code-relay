@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, Navigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import SourcesTab from '../components/SourcesTab';
@@ -21,7 +21,7 @@ const menuConfig: Record<string, MenuConfig> = {
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const [activeMenu, setActiveMenu] = useState('sources');
+  const { tab } = useParams<{ tab: string }>();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,24 +43,33 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">加载中...</div>
-      </div>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-gray-600">加载中...</div>
+        </div>
     );
   }
 
-  const current = menuConfig[activeMenu] || menuConfig.sources;
+  // 如果 tab 无效，重定向到默认页
+  if (!tab || !menuConfig[tab]) {
+    return <Navigate to="/admin/sources" replace />;
+  }
+
+  const current = menuConfig[tab];
   const CurrentComponent = current.component;
 
+  const handleMenuChange = (menu: string) => {
+    navigate(`/admin/${menu}`);
+  };
+
   return (
-    <div className="flex h-screen bg-gray-100">
-      <Sidebar activeMenu={activeMenu} onMenuChange={setActiveMenu} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header title={current.title} />
-        <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-          <CurrentComponent />
+      <div className="flex h-screen bg-gray-100">
+        <Sidebar activeMenu={tab} onMenuChange={handleMenuChange} />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Header title={current.title} />
+          <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+            <CurrentComponent />
+          </div>
         </div>
       </div>
-    </div>
   );
 }

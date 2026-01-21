@@ -3,7 +3,13 @@
     "allow": [
       "Bash(go build:*)",
       "Bash(go run -ldflags=\"-s -w\" .)",
-      "Bash(./code-relay.exe)"
+      "Bash(./code-relay.exe)",
+      "Bash(npm run build)",
+      "Bash(where:*)",
+      "Bash(cmd /c \"npm run build\")",
+      "Bash(/d/soft/nodejs_all/npm run build)",
+      "Bash(curl:*)",
+      "Bash(bash:*)"
     ],
     "deny": [],
     "ask": []

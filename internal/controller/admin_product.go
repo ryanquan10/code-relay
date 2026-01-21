@@ -45,6 +45,7 @@ func ListProducts(c *gin.Context) {
 	}
 
 	var response []ProductResponse
+	response = make([]ProductResponse, 0)
 	for _, p := range products {
 		status := "inactive"
 		if p.Status == 1 {

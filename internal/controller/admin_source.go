@@ -39,7 +39,7 @@ func ListSources(c *gin.Context) {
 		UpdatedAt   string `json:"updated_at"`
 	}
 
-	var response []SourceResponse
+	response := make([]SourceResponse, 0)
 	for _, s := range sources {
 		status := "inactive"
 		if s.Status == 1 {

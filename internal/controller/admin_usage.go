@@ -35,6 +35,7 @@ func ListUsages(c *gin.Context) {
 	}
 
 	var response []UsageResponse
+	response = make([]UsageResponse, 0)
 	for _, u := range usages {
 		response = append(response, UsageResponse{
 			ID:          u.ID,

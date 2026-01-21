@@ -9,12 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
-	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,9 +24,24 @@ type Server struct {
 	frontendCmd *exec.Cmd
 }
 
+const indexPath = "frontend/dist/index.html"
+
+func serveIndex(c *gin.Context, frontendFS embed.FS) {
+	data, err := frontendFS.ReadFile(indexPath)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+}
+
 func New(cfg config.Config, frontendFS embed.FS) *Server {
 	engine := gin.New()
 	engine.Use(gin.Logger(), gin.Recovery())
+
+	// 禁用自动重定向
+	engine.RedirectTrailingSlash = false
+	engine.RedirectFixedPath = false
 
 	// CORS 中间件
 	engine.Use(func(c *gin.Context) {
@@ -43,84 +58,91 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 		c.Next()
 	})
 
-	// 路由分组
-	api := &engine.RouterGroup
-	if base := controller.NormalizeBasePath(cfg.Server.Servlet.ContextPath); base != "" {
-		api = engine.Group(base)
-	}
-
-	internal := api.Group("/internal")
+	// ==================== API 路由 ====================
+	api := engine.Group("/api")
 	{
-		internal.GET("/health", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{
-				"status":  "ok",
-				"service": cfg.Spring.Application.Name,
+		// 内部健康检查
+		internal := api.Group("/internal")
+		{
+			internal.GET("/health", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"status":  "ok",
+					"service": cfg.Spring.Application.Name,
+				})
 			})
-		})
+			internal.GET("/usage", controller.Usage)
+		}
 
-		internal.GET("/usage", controller.Usage)
+		// 认证路由
+		auth := api.Group("/auth")
+		{
+			auth.POST("/login", controller.Login)
+		}
+
+		// 管理后台路由
+		admin := api.Group("/admin")
+		{
+			// 货源管理
+			admin.GET("/sources", controller.ListSources)
+			admin.POST("/sources", controller.CreateSource)
+			admin.PUT("/sources/:id", controller.UpdateSource)
+			admin.DELETE("/sources/:id", controller.DeleteSource)
+
+			// 产品管理
+			admin.GET("/products", controller.ListProducts)
+			admin.POST("/products", controller.CreateProduct)
+			admin.PUT("/products/:id", controller.UpdateProduct)
+			admin.DELETE("/products/:id", controller.DeleteProduct)
+
+			// 账号管理
+			admin.GET("/accounts", controller.ListAccounts)
+			admin.GET("/accounts/token/:token", controller.GetAccountByToken)
+			admin.POST("/accounts", controller.CreateAccount)
+			admin.POST("/accounts/batch", controller.BatchCreateAccounts)
+			admin.PUT("/accounts/:id/balance", controller.UpdateAccountBalance)
+			admin.DELETE("/accounts/:id", controller.DeleteAccount)
+
+			// 使用量查看
+			admin.GET("/usage", controller.ListUsages)
+			admin.POST("/usage/query", controller.QueryUsageByToken)
+			admin.GET("/usage/stats", controller.GetUsageStats)
+		}
 	}
 
-	// 认证相关路由（无需认证）
-	auth := api.Group("/auth")
-	{
-		auth.POST("/login", controller.Login)
-	}
+	// ==================== 静态资源路由 ====================
+	// 处理 /assets/* 下的静态资源
+	engine.GET("/assets/*filepath", func(c *gin.Context) {
+		reqPath := c.Request.URL.Path
+		// 安全检查：防止路径遍历攻击
+		if strings.Contains(reqPath, "..") {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+		filePath := path.Join("frontend/dist", reqPath)
+		c.FileFromFS(filePath, http.FS(frontendFS))
+	})
 
-	admin := api.Group("/admin")
-	{
-		// 货源管理
-		admin.GET("/sources", controller.ListSources)
-		admin.POST("/sources", controller.CreateSource)
-		admin.PUT("/sources/:id", controller.UpdateSource)
-		admin.DELETE("/sources/:id", controller.DeleteSource)
-
-		// 产品管理
-		admin.GET("/products", controller.ListProducts)
-		admin.POST("/products", controller.CreateProduct)
-		admin.PUT("/products/:id", controller.UpdateProduct)
-		admin.DELETE("/products/:id", controller.DeleteProduct)
-
-		// 账号管理
-		admin.GET("/accounts", controller.ListAccounts)
-		admin.GET("/accounts/token/:token", controller.GetAccountByToken)
-		admin.POST("/accounts", controller.CreateAccount)
-		admin.POST("/accounts/batch", controller.BatchCreateAccounts)
-		admin.PUT("/accounts/:id/balance", controller.UpdateAccountBalance)
-		admin.DELETE("/accounts/:id", controller.DeleteAccount)
-
-		// 使用量查看
-		admin.GET("/usage", controller.ListUsages)
-		admin.POST("/usage/query", controller.QueryUsageByToken)
-		admin.GET("/usage/stats", controller.GetUsageStats)
-	}
-
-	// ──────────────────────────────────────────────
-	//           前端静态文件嵌入（使用根包的 FrontendFS）
-	// ──────────────────────────────────────────────
-
-	embeddedFS, err := static.EmbedFolder(frontendFS, "frontend/dist")
-	if err != nil {
-		log.Fatalf("创建嵌入文件系统失败: %v", err)
-	}
-
-	engine.Use(static.Serve("/", embeddedFS))
-
-	// SPA 支持：未匹配路由回退到 index.html（保护 API 路径）
+	// ==================== SPA 路由 ====================
+	// 所有非 API、非静态资源的请求都返回 index.html
 	engine.NoRoute(func(c *gin.Context) {
-		path := c.Request.URL.Path
+		reqPath := c.Request.URL.Path
 
-		if strings.HasPrefix(path, "/api/") ||
-			strings.HasPrefix(path, "/admin/") ||
-			strings.HasPrefix(path, "/auth/") ||
-			strings.HasPrefix(path, "/internal/") {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "resource not found",
-			})
+		// 如果是 API 路径，返回 404 JSON
+		if strings.HasPrefix(reqPath, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "API endpoint not found"})
 			return
 		}
 
-		c.FileFromFS("frontend/dist/index.html", http.FS(frontendFS))
+		// 如果请求的是静态文件（根据扩展名判断），尝试提供文件
+		if isStaticFile(reqPath) {
+			filePath := path.Join("frontend/dist", strings.TrimPrefix(reqPath, "/"))
+			// 尝试提供文件，如果失败 Gin 会自动返回 404
+			c.FileFromFS(filePath, http.FS(frontendFS))
+			return
+		}
+
+		// 其他所有请求返回 index.html，让前端路由处理
+		serveIndex(c, frontendFS)
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
@@ -129,7 +151,6 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 		addr:   addr,
 	}
 
-	// 自动启动前端开发服务器
 	if os.Getenv("DEV_MODE") == "true" {
 		if err := srv.startFrontendDev(); err != nil {
 			log.Printf("警告: 启动前端开发服务器失败: %v", err)
@@ -137,6 +158,22 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 	}
 
 	return srv
+}
+
+// isStaticFile 检查路径是否是静态文件
+func isStaticFile(reqPath string) bool {
+	staticExtensions := []string{
+		".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+		".ico", ".woff", ".woff2", ".ttf", ".eot", ".otf",
+		".json", ".xml", ".txt", ".pdf",
+	}
+
+	for _, ext := range staticExtensions {
+		if strings.HasSuffix(reqPath, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) Run() error {
@@ -150,30 +187,24 @@ func (s *Server) Run() error {
 	return srv.ListenAndServe()
 }
 
-// startFrontendDev 启动前端开发服务器
 func (s *Server) startFrontendDev() error {
-	// 获取项目根目录
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		return fmt.Errorf("无法获取当前文件路径")
 	}
 
-	// 从 internal/server/server.go 回退到项目根目录
 	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..")
 	frontendDir := filepath.Join(projectRoot, "frontend")
 
-	// 检查前端目录是否存在
 	if _, err := os.Stat(frontendDir); os.IsNotExist(err) {
 		return fmt.Errorf("前端目录不存在: %s", frontendDir)
 	}
 
-	// 检查 package.json 是否存在
 	packageJSON := filepath.Join(frontendDir, "package.json")
 	if _, err := os.Stat(packageJSON); os.IsNotExist(err) {
 		return fmt.Errorf("package.json 不存在: %s", packageJSON)
 	}
 
-	// 根据操作系统选择命令
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.Command("cmd", "/C", "npm run dev")
@@ -193,7 +224,6 @@ func (s *Server) startFrontendDev() error {
 	s.frontendCmd = cmd
 	log.Printf("前端开发服务器已启动 (PID: %d)", cmd.Process.Pid)
 
-	// 启动一个 goroutine 来监控前端进程
 	go func() {
 		if err := cmd.Wait(); err != nil {
 			log.Printf("前端开发服务器已退出: %v", err)
@@ -203,7 +233,6 @@ func (s *Server) startFrontendDev() error {
 	return nil
 }
 
-// Stop 停止服务器和前端开发服务器
 func (s *Server) Stop() error {
 	if s.frontendCmd != nil && s.frontendCmd.Process != nil {
 		log.Printf("正在停止前端开发服务器...")

@@ -38,6 +38,7 @@ func ListAccounts(c *gin.Context) {
 	}
 
 	var response []AccountResponse
+	response = make([]AccountResponse, 0)
 	for _, a := range accounts {
 		token := ""
 		if a.Token != nil {
