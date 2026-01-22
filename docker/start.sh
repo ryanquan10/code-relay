@@ -14,14 +14,14 @@ echo ""
 cd "$(dirname "$0")"
 
 # 检查 Docker 是否安装
-if ! command -v docker &gt; /dev/null; then
+if ! command -v docker > /dev/null 2>&1; then
     echo "错误: Docker 未安装，请先安装 Docker"
     echo "访问: https://docs.docker.com/get-docker/"
     exit 1
 fi
 
 # 检查 Docker Compose 是否安装
-if ! command -v docker-compose &gt; /dev/null && ! docker compose version &gt; /dev/null 2&gt;&amp;1; then
+if ! command -v docker-compose > /dev/null 2>&1 && ! docker compose version > /dev/null 2>&1; then
     echo "错误: Docker Compose 未安装"
     echo "访问: https://docs.docker.com/compose/install/"
     exit 1
@@ -45,7 +45,7 @@ mkdir -p config logs
 echo ""
 echo "[2/4] 构建 Docker 镜像..."
 # 使用 docker compose 或 docker-compose
-if docker compose version &gt; /dev/null 2&gt;&amp;1; then
+if docker compose version > /dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
 else
     DOCKER_COMPOSE="docker-compose"
