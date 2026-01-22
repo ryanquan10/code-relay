@@ -1,0 +1,102 @@
+   1: package entity
+   2: 
+   3: import (
+   4: 	"encoding/json"
+   5: 	"time"
+   6: )
+   7: 
+   8: // AccountSource 账号供应商（存储上游地址）
+  10: 	ID            int64           `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+  11: 	SourceName    string          `db:"source_name" json:"source_name" gorm:"type:varchar(100);not null"`
+  12: 	UpstreamURL   *string         `db:"upstream_url" json:"upstream_url" gorm:"type:varchar(255)"`
+  13: 	UpstreamToken *string         `db:"upstream_token" json:"upstream_token" gorm:"type:varchar(255)"`
+  14: 	SourceType    string          `db:"source_type" json:"source_type" gorm:"type:varchar(50);not null"`
+  15: 	Config        json.RawMessage `db:"config" json:"config" gorm:"type:json"` // 上游地址、API配置等
+  16: 	Priority      int             `db:"priority" json:"priority" gorm:"default:1"`
+  17: 	AutoRental    bool            `db:"auto_rental" json:"auto_rental" gorm:"default:false"`
+  18: 	Status        int             `db:"status" json:"status" gorm:"default:1"`
+  19: 	Remark        *string         `db:"remark" json:"remark" gorm:"type:text"`
+  20: 	CreateTime    time.Time       `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+  21: 	UpdateTime    time.Time       `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+  23: 
+  25: 	return "account_source"
+  27: 
+  28: // Product 产品
+  30: 	ID               int64    `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+  31: 	ProductCode      string   `db:"product_code" json:"product_code" gorm:"type:varchar(100);uniqueIndex;not null"`
+  32: 	ProductName      string   `db:"product_name" json:"product_name" gorm:"type:varchar(200);not null"`
+  33: 	AccountType      string   `db:"account_type" json:"account_type" gorm:"type:varchar(100)"`
+  34: 	Category         *string  `db:"category" json:"category" gorm:"type:varchar(100);index"`
+  35: 	Icon             *string  `db:"icon" json:"icon" gorm:"type:varchar(255)"`
+  36: 	ImageURL         *string  `db:"image_url" json:"image_url" gorm:"type:varchar(255)"`
+  37: 	DownStreamURL    *string  `db:"down_stream_url" json:"down_stream_url" gorm:"type:varchar(255)"`
+  38: 	Description      *string  `db:"description" json:"description" gorm:"type:text"`
+  39: 	Price            float64  `db:"price" json:"price" gorm:"type:decimal(10,2);default:0"`
+  40: 	OriginalPrice    *float64 `db:"original_price" json:"original_price" gorm:"type:decimal(10,2)"`
+  41: 	SalesCount       int      `db:"sales_count" json:"sales_count" gorm:"default:0"`
+  42: 	ContactInfo      *string  `db:"contact_info" json:"contact_info" gorm:"type:text"`
+  43: 	UsageInstruction *string  `db:"usage_instruction" json:"usage_instruction" gorm:"type:text"`
+  44: 	ValidityDays     int      `db:"validity_days" json:"validity_days" gorm:"default:9999"`
+  45: 	SharedLimit      int      `db:"shared_limit" json:"shared_limit" gorm:"default:0"`
+  46: 	CostPrice        float64  `db:"cost_price" json:"cost_price" gorm:"type:decimal(10,2);default:0"`
+  47: 	DefaultBalance   float64  `db:"default_balance" json:"default_balance" gorm:"type:decimal(10,2);default:0"`
+  48: 	OriginalBalance  float64  `db:"original_balance" json:"original_balance" gorm:"type:decimal(10,2);default:0"`
+  49: 	Stock            int      `db:"stock" json:"stock" gorm:"default:0"`
+  50: 	AutoDelivery     bool     `db:"auto_delivery" json:"auto_delivery" gorm:"default:false"`
+  51: 	SortOrder        int      `db:"sort_order" json:"sort_order" gorm:"default:0"`
+  52: 	Status           int      `db:"status" json:"status" gorm:"default:1;index"`
+  53: 	Version          int      `db:"version" json:"version" gorm:"default:0"` // 乐观锁：库存
+  54: 
+  55: 	CreateTime time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+  56: 	UpdateTime time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+  58: 
+  60: 	return "product"
+  62: 
+  63: // AccountSourceProcut 账号供应商与产品关系
+  65: 	ID         int64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+  66: 	ProductID  int64     `db:"product_id" json:"product_id" gorm:"not null;index"`
+  67: 	SourceID   int64     `db:"source_id" json:"source_id" gorm:"not null;index"`
+  68: 	Weight     int       `db:"weight" json:"weight" gorm:"default:0"`
+  69: 	CreateTime time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+  70: 	UpdateTime time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+  72: 
+  74: 	return "account_source_procut"
+  76: 
+  77: // Account 账号实例
+  79: 	ID               uint64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+  80: 	AccountEmail     string     `db:"account_email" json:"account_email" gorm:"type:varchar(255);index"`
+  81: 	AccountPassword  *string    `db:"account_password" json:"account_password" gorm:"type:varchar(255)"`
+  82: 	Token            *string    `db:"token" json:"token" gorm:"type:varchar(255);uniqueIndex"`
+  83: 	ProductID        int64      `db:"product_id" json:"product_id" gorm:"not null;index"`
+  84: 	SourceID         int64      `db:"source_id" json:"source_id" gorm:"not null;index"`
+  85: 	UserID           *uint64    `db:"user_id" json:"user_id" gorm:"index"`
+  86: 	Status           string     `db:"status" json:"status" gorm:"type:varchar(50);default:'active';index"`
+  87: 	ExpireDate       *time.Time `db:"expire_date" json:"expire_date" gorm:"index"`
+  88: 	Balance          float64    `db:"balance" json:"balance" gorm:"type:decimal(10,2);default:0"`
+  89: 	UsedBalance      float64    `db:"used_balance" json:"" gorm:"type:decimal(10,2);default:0;comment:'已使用余额'"`
+  90: 	LastRechargeTime *time.Time `db:"last_recharge_time" json:"last_recharge_time"`
+  91: 	Remark           *string    `db:"remark" json:"remark" gorm:"type:text"`
+  92: 	Version          int        `db:"version" json:"version" gorm:"default:0"` // 乐观锁：余额
+  93: 	CreateTime       time.Time  `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+  94: 	UpdateTime       time.Time  `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+  96: 
+  98: 	return "account"
+ 100: 
+ 101: // Usage 使用量记录
+ 103: 	ID         uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+ 104: 	AccountID  uint64    `gorm:"column:account_id;not null;index:idx_account_time" json:"account_id"`
+ 105: 	Consume    float64   `gorm:"column:consume;type:decimal(10,2);default:0" json:"consume"`
+ 106: 	CreateTime time.Time `gorm:"autoCreateTime;index:idx_account_time" json:"create_time"`
+ 107: 	UpdateTime time.Time `gorm:"autoUpdateTime" json:"update_time"`
+ 109: 
+ 111: 	return "usage"
+ 113: 
+ 114: // DailyUsage 按天统计的使用量
+ 116: 	Date        string  `json:"date"`         // 日期格式: 2006-01-02
+ 117: 	TotalConsume float64 `json:"total_consume"` // 当天总消费
+ 118: 	RecordCount  int64   `json:"record_count"`  // 记录条数
+ 120: 
+ 121: // AccountSourceConfig 供应商配置（存储在 AccountSource.Config JSON 字段中）
+ 123: 	APIURL      *string `json:"api_url"` // 上游地址
+ 124: 	APIKey      *string `json:"api_key"`
+ 125: 	HandlerType string  `json:"handler_type"` // 处理器类型

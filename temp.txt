@@ -1,0 +1,12 @@
+      )}
+
+      {/* 搜索栏 */}
+      <div className="mb-6 bg-white rounded-lg shadow p-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
+            >
+              搜索
+            </button>
+            <button
+              onClick={handleReset}
