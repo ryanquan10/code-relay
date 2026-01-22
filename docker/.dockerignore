@@ -1,0 +1,78 @@
+# ================================
+# .dockerignore
+# 优化 Docker 构建，排除不必要的文件
+# ================================
+
+# Git 相关
+.git
+.gitignore
+.gitattributes
+
+# Docker 相关
+docker/
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 编译产物
+code-relay
+code-relay.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 前端相关
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/package-lock.json
+frontend/yarn.lock
+
+# 日志文件
+*.log
+logs/
+http-relay.log
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.bak
+*.cache
+
+# 测试文件
+*_test.go
+test/
+coverage/
+*.test
+
+# 文档
+README.md
+LICENSE
+*.md
+docs/
+
+# 配置文件（生产环境应该用环境变量）
+config/app.yaml
+*.env
+*.env.local
+.env.*
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 其他
+nul
+migrations/
+build.sh
