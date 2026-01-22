@@ -4,6 +4,7 @@ import (
 	"codex-relay/client"
 	"codex-relay/config"
 	"codex-relay/internal/controller"
+	"context"
 	"embed"
 	"fmt"
 	"log"
@@ -210,7 +211,7 @@ func isStaticFile(reqPath string) bool {
 	return false
 }
 
-func (s *Server) Run() error {
+func (s *Server) Run(ctx context.Context) error {
 	log.Printf("internal server listening on %s", s.addr)
 	srv := &http.Server{
 		Addr:              s.addr,
@@ -218,7 +219,30 @@ func (s *Server) Run() error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	return srv.ListenAndServe()
+
+	// 启动 HTTP 服务器在单独的 goroutine
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP 服务器错误: %v", err)
+		}
+	}()
+
+	// 等待 context 取消
+	<-ctx.Done()
+	log.Println("📡 收到关闭信号，正在停止 HTTP 服务器...")
+
+	// 创建 5 秒超时的关闭 context
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 优雅关闭服务器
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP 服务器关闭错误: %v", err)
+		return err
+	}
+
+	log.Println("✓ HTTP 服务器已优雅关闭")
+	return nil
 }
 
 func (s *Server) startFrontendDev() error {

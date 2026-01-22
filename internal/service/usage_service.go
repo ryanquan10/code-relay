@@ -44,6 +44,7 @@ func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, con
 	// 3. 创建 Usage 记录
 	usage := &entity.Usage{
 		AccountID:  account.ID,
+		TOKENS:     tokens,
 		Consume:    consume,
 		CreateTime: now,
 		UpdateTime: now,

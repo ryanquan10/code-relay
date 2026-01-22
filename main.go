@@ -69,12 +69,15 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		log.Println("📡 收到关闭信号，正在停止消费者...")
+		log.Println("📡 收到关闭信号，开始优雅关闭...")
 		cancel()
 	}()
 
+	// 启动 HTTP 服务器（会阻塞直到 context 被取消）
 	srv := server.New(cfg, FrontendFS)
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+
+	log.Println("✓ 程序已完全退出")
 }
