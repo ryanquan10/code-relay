@@ -1,4 +1,4 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 
 const api = axios.create({
   baseURL: '/api/admin',
@@ -113,6 +113,7 @@ export interface Account {
   source_id: number;
   user_id?: number | null;
   balance: number;
+  used_balance?: number;  // 已使用余额
   status: string;
   expire_date?: string | null;
   last_recharge_time?: string | null;
@@ -129,7 +130,8 @@ export const accountAPI = {
   batchCreate: (accounts: Partial<Account>[]) => api.post<any, { success: number; failed: number }>('/accounts/batch', { accounts }),
   update: (id: number, data: Partial<Account>) => api.put<any, Account>(`/accounts/${id}`, data),
   delete: (id: number) => api.delete(`/accounts/${id}`),
-  updateBalance: (id: number, balance: number) => api.put(`/accounts/${id}/balance`, { balance }),
+  updateBalance: (id: number, balance: number, usedBalance?: number) =>
+    api.put(`/accounts/${id}/balance`, { balance, used_balance: usedBalance }),
 };
 
 // 使用量查看
@@ -151,3 +153,49 @@ export const usageAPI = {
   getStats: (startDate?: string, endDate?: string) =>
     api.get<any, any>('/usage/stats', { params: { start_date: startDate, end_date: endDate } }),
 };
+
+
+// Public API client for non-admin endpoints
+const publicApi = axios.create({
+  baseURL: '/api',
+  timeout: 10000,
+  headers: { 'Content-Type': 'application/json' },
+});
+publicApi.interceptors.response.use(
+  (response) => response.data,
+  (error) => Promise.reject(error)
+);
+
+export interface DailyUsage {
+  date: string;
+  total_consume: number;
+  record_count: number;
+}
+
+export interface DailyUsageSummary {
+  total_consume: number;
+  total_records: number;
+  days: number;
+}
+
+export interface DailyUsageResponse {
+  success: boolean;
+  data: {
+    daily_usages: DailyUsage[];
+    summary: DailyUsageSummary;
+  };
+}
+
+export const usageDailyAPI = {
+  byDays: (customerKey: string, days: number = 7) =>
+    publicApi.get<any, DailyUsageResponse>('/usage/daily', {
+      params: { days },
+      headers: { Authorization: `Bearer ${customerKey}` },
+    }),
+  byRange: (customerKey: string, startDate: string, endDate: string) =>
+    publicApi.get<any, DailyUsageResponse>('/usage/daily/range', {
+      params: { start_date: startDate, end_date: endDate },
+      headers: { Authorization: `Bearer ${customerKey}` },
+    }),
+};
+

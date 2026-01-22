@@ -127,6 +127,68 @@ func (r *AccountRepository) DeductBalance(id uint64, amount float64) error {
 	return err
 }
 
+// IncrementUsedBalance 增加已使用余额（不减少总余额）
+// 使用场景：记录用户消费，累加到 used_balance，但不改变 balance
+// 余额检查规则：当 used_balance > balance 时，拒绝请求
+func (r *AccountRepository) IncrementUsedBalance(id uint64, amount float64) error {
+	db := mysql.DB()
+	if db == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
+	// 使用事务和行锁确保更新安全
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var account entity.Account
+		// 加行锁 (FOR UPDATE)
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&account, id).Error; err != nil {
+			return fmt.Errorf("failed to lock account: %w", err)
+		}
+
+		// 增加 used_balance
+		newUsedBalance := account.UsedBalance + amount
+		if err := tx.Model(&entity.Account{}).
+			Where("id = ?", id).
+			Update("used_balance", newUsedBalance).Error; err != nil {
+			return fmt.Errorf("failed to increment used_balance: %w", err)
+		}
+
+		return nil
+	})
+
+	return err
+}
+
+// UpdateUsedBalance 直接设置已使用余额（用于初始化或修正数据）
+// 注意：正常情况下应该使用 IncrementUsedBalance 来累加，此方法仅用于管理员手动修正
+func (r *AccountRepository) UpdateUsedBalance(id uint64, usedBalance float64) error {
+	db := mysql.DB()
+	if db == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
+	// 使用事务和行锁确保更新安全
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var account entity.Account
+		// 加行锁 (FOR UPDATE)
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&account, id).Error; err != nil {
+			return fmt.Errorf("failed to lock account: %w", err)
+		}
+
+		// 直接设置 used_balance
+		if err := tx.Model(&entity.Account{}).
+			Where("id = ?", id).
+			Update("used_balance", usedBalance).Error; err != nil {
+			return fmt.Errorf("failed to update used_balance: %w", err)
+		}
+
+		return nil
+	})
+
+	return err
+}
+
 // Create 创建新的 Account
 func (r *AccountRepository) Create(account *entity.Account) error {
 	db := mysql.DB()

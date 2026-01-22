@@ -1,4 +1,4 @@
-# Code Relay (Gin Internal)
+﻿# Code Relay (Gin Internal)
 
 提供内部接口并读取 Redis 使用量,配置通过 Viper + YAML + 环境变量覆盖。
 
@@ -68,6 +68,9 @@ SPRING_REDIS_DB=0
 - `DELETE /api/admin/accounts/:id` - 删除账号
 
 #### 使用量查看
+#### 每日统计（按 Token）
+- `GET /api/usage/daily?days=7` - 需要在 Header 传 `Authorization: Bearer <customer_token>`
+- `GET /api/usage/daily/range?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` - 同上，按日期范围
 - `GET /api/admin/usage` - 获取使用量列表
 - `POST /api/admin/usage/query` - 按 Customer Key 查询
 - `GET /api/admin/usage/stats` - 获取统计数据
@@ -168,4 +171,5 @@ code-relay/
 ## 安全说明
 
 ⚠️ **重要**: 当前版本使用硬编码密码仅用于测试。生产环境请实现真实的认证系统。
+
 

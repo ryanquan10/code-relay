@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { usageAPI, Usage } from '../api/client';
+﻿import { useState, useEffect } from 'react';
+import { usageAPI, Usage, usageDailyAPI, DailyUsage, DailyUsageSummary } from '../api/client';
 
 export default function UsageTab() {
   const [usages, setUsages] = useState<Usage[]>([]);
+  const [dailyUsages, setDailyUsages] = useState<DailyUsage[]>([]);
+  const [dailySummary, setDailySummary] = useState<DailyUsageSummary | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [searchKey, setSearchKey] = useState('');
@@ -36,24 +38,44 @@ export default function UsageTab() {
     }
   };
 
-  const handleSearch = async () => {
+  
+
+  const handleDailyQuery = async () => {
     if (!searchKey.trim()) {
       alert('请输入 Customer Key');
       return;
     }
     try {
       setLoading(true);
-      const dates = [];
       if (startDate && endDate) {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          dates.push(d.toISOString().split('T')[0]);
-        }
+        const resp = await usageDailyAPI.byRange(searchKey.trim(), startDate, endDate);
+        setDailyUsages(resp.data.daily_usages || []);
+        setDailySummary(resp.data.summary || null);
+      } else {
+        const resp = await usageDailyAPI.byDays(searchKey.trim(), 7);
+        setDailyUsages(resp.data.daily_usages || []);
+        setDailySummary(resp.data.summary || null);
       }
-      const result = await usageAPI.getByToken(searchKey, dates.length > 0 ? dates : undefined);
-      setUsages(result.details || []);
-      setStats({ total_consume: result.total_consume });
+    } catch (error) {
+      console.error('每日统计查询失败:', error);
+      alert('每日统计查询失败');
+      setDailyUsages([]);
+      setDailySummary(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchKey.trim()) {
+      loadUsages();
+      loadStats();
+      return;
+    }
+    try {
+      setLoading(true);
+      const resp = await usageAPI.getByToken(searchKey.trim());
+      setUsages(resp.details || []);
     } catch (error) {
       console.error('查询失败:', error);
       alert('查询失败');
@@ -62,7 +84,6 @@ export default function UsageTab() {
       setLoading(false);
     }
   };
-
   const handleReset = () => {
     setSearchKey('');
     setStartDate('');
@@ -139,6 +160,12 @@ export default function UsageTab() {
               搜索
             </button>
             <button
+              onClick={handleDailyQuery}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition"
+            >
+              每日统计
+            </button>
+            <button
               onClick={handleReset}
               className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
             >
@@ -147,6 +174,43 @@ export default function UsageTab() {
           </div>
         </div>
       </div>
+
+
+      {/* 每日统计 */}
+      {dailyUsages.length > 0 && (
+        <div className="bg-white rounded-lg shadow overflow-hidden mb-6">
+          <div className="p-4 border-b">
+            <div className="flex items-center justify-between">
+              <div className="font-medium">每日统计</div>
+              {dailySummary && (
+                <div className="text-sm text-gray-600">
+                  合计 {dailySummary.days} 天，消费 ¥{dailySummary.total_consume.toFixed(4)}（{dailySummary.total_records} 条）
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">日期</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">消费(元)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">记录数</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {dailyUsages.map((d) => (
+                  <tr key={d.date} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{d.date}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">¥{d.total_consume.toFixed(4)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{d.record_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* 使用量列表 */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -214,3 +278,8 @@ export default function UsageTab() {
     </div>
   );
 }
+
+
+
+
+

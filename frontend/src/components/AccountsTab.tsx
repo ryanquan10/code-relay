@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { accountAPI, productAPI, Account, Product } from '../api/client';
 
 export default function AccountsTab() {
@@ -7,13 +7,23 @@ export default function AccountsTab() {
   const [loading, setLoading] = useState(true);
   const [productsLoading, setProductsLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [searchToken, setSearchToken] = useState('');
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [formData, setFormData] = useState({
     account_email: '',
     token: '',
     balance: 0,
+    status: 'active',
+    product_id: 0,
+  });
+  const [editFormData, setEditFormData] = useState({
+    account_email: '',
+    token: '',
+    balance: 0,
+    used_balance: 0,
     status: 'active',
     product_id: 0,
   });
@@ -285,16 +295,51 @@ export default function AccountsTab() {
   };
 
   const handleUpdateBalance = async (id: number) => {
-    const balance = prompt('请输入新余额:');
+    const balance = prompt('请输入新额度:');
     if (balance === null) return;
     const newBalance = parseFloat(balance);
     if (isNaN(newBalance)) {
-      alert('余额格式错误');
+      alert('额度格式错误');
       return;
     }
     try {
       await accountAPI.updateBalance(id, newBalance);
       alert('更新成功');
+      loadAccounts();
+    } catch (error) {
+      console.error('更新失败:', error);
+      alert('更新失败');
+    }
+  };
+
+  const handleEdit = (account: Account) => {
+    setEditingAccount(account);
+    setEditFormData({
+      account_email: account.account_email,
+      token: account.token || '',
+      balance: account.balance,
+      used_balance: account.used_balance || 0,
+      status: account.status,
+      product_id: account.product_id,
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAccount) return;
+
+    try {
+      // 调用更新 API，同时更新 balance 和 used_balance
+      await accountAPI.updateBalance(
+        editingAccount.id,
+        editFormData.balance,
+        editFormData.used_balance
+      );
+
+      alert('更新成功');
+      setShowEditModal(false);
+      setEditingAccount(null);
       loadAccounts();
     } catch (error) {
       console.error('更新失败:', error);
@@ -374,7 +419,13 @@ export default function AccountsTab() {
                   供应商ID
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  余额
+                  额度
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  已用额度
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  剩余额度
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   状态
@@ -390,7 +441,7 @@ export default function AccountsTab() {
             <tbody className="bg-white divide-y divide-gray-200">
               {accounts.length === 0 ? (
                 <tr>
-                <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={11} className="px-6 py-8 text-center text-gray-500">
                   暂无数据
                 </td>
               </tr>
@@ -403,10 +454,10 @@ export default function AccountsTab() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {account.account_email}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      <span className="font-mono text-xs">
-                        {account.token ? `${account.token.substring(0, 20)}...` : '-'}
-                      </span>
+                    <td className="px-6 py-4 text-sm text-gray-500 max-w-md">
+                      <div className="font-mono text-xs break-all whitespace-normal">
+                        {account.token || '-'}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {account.product_id}
@@ -416,6 +467,12 @@ export default function AccountsTab() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       ${account.balance.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      ${account.used_balance?.toFixed(2) ?? "0.00"}
+                    </td>
+                    <td className={"px-6 py-4 whitespace-nowrap text-sm " + ((account.balance - (account.used_balance ?? 0)) < 0 ? "text-red-600" : "text-gray-900")}>
+                      ${ (account.balance - (account.used_balance ?? 0)).toFixed(2) }
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
@@ -432,6 +489,12 @@ export default function AccountsTab() {
                       {new Date(account.create_time).toLocaleString('zh-CN')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                      <button
+                        onClick={() => handleEdit(account)}
+                        className="text-indigo-600 hover:text-indigo-900"
+                      >
+                        编辑
+                      </button>
                       <button
                         onClick={() => handleUpdateBalance(account.id)}
                         className="text-blue-600 hover:text-blue-900"
@@ -490,7 +553,7 @@ export default function AccountsTab() {
                 <p className="text-xs text-gray-500 mt-1">默认使用产品前缀-随机32位</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">默认余额</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">默认额度</label>
                 <input
                   type="number"
                   step="0.01"
@@ -501,7 +564,7 @@ export default function AccountsTab() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">默认取产品默认余额</p>
+                <p className="text-xs text-gray-500 mt-1">默认取产品默认额度</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">状态</label>
@@ -562,7 +625,7 @@ export default function AccountsTab() {
           <div className="bg-white rounded-lg p-6 w-full max-w-lg">
             <h3 className="text-lg font-semibold mb-4">批量生成账号</h3>
             <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800">
-              选择产品与数量后自动生成 Token，邮箱留空，余额取产品默认余额。
+              选择产品与数量后自动生成 Token，邮箱留空，额度取产品默认额度。
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div>
@@ -623,13 +686,13 @@ export default function AccountsTab() {
             <h3 className="text-lg font-semibold mb-4">批量导入/新增账号</h3>
             <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
               <p className="font-medium mb-1">快速批量新增</p>
-              <p>选择产品和数量即可自动生成 Token 与默认余额。</p>
+              <p>选择产品和数量即可自动生成 Token 与默认额度。</p>
             </div>
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
               <p className="font-medium mb-2">格式说明:</p>
               <p>每行一个账号，使用逗号或竖线分隔</p>
               <p className="font-mono mt-1">email,token,balance (email 可选)</p>
-              <p className="text-xs mt-1">token 为空自动生成，balance 为空取产品默认余额</p>
+              <p className="text-xs mt-1">token 为空自动生成，balance 为空取产品默认额度</p>
               <p className="font-mono mt-1">示例: user@example.com,sk-xxx123,10.00</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -710,6 +773,120 @@ export default function AccountsTab() {
           </div>
         </div>
       )}
+
+      {/* 编辑账号模态框 */}
+      {showEditModal && editingAccount && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">编辑账号 (ID: {editingAccount.id})</h3>
+            <form onSubmit={handleUpdate} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                <input
+                  type="email"
+                  value={editFormData.account_email}
+                  onChange={(e) => setEditFormData({ ...editFormData, account_email: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  disabled
+                />
+                <p className="text-xs text-gray-500 mt-1">邮箱不可编辑</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Token</label>
+                <textarea
+                  value={editFormData.token}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-xs bg-gray-50"
+                  rows={3}
+                  disabled
+                />
+                <p className="text-xs text-gray-500 mt-1">Token 不可编辑</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">总额度</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editFormData.balance}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, balance: parseFloat(e.target.value) || 0 })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">已用额度</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editFormData.used_balance}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, used_balance: parseFloat(e.target.value) || 0 })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  剩余额度: ${(editFormData.balance - editFormData.used_balance).toFixed(2)}
+                  {editFormData.balance - editFormData.used_balance < 0 && (
+                    <span className="text-red-600 ml-2">（欠费）</span>
+                  )}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">状态</label>
+                <select
+                  value={editFormData.status}
+                  onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                >
+                  <option value="active">正常</option>
+                  <option value="inactive">禁用</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
+                <select
+                  value={editFormData.product_id}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50"
+                  disabled
+                >
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.product_name} ({product.product_code})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">产品不可编辑</p>
+              </div>
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingAccount(null);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition"
+                >
+                  保存
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
+
+
+

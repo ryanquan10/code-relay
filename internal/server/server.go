@@ -80,6 +80,13 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			auth.POST("/login", controller.Login)
 		}
 
+		// 使用量接口（按天）
+		usage := api.Group("/usage")
+		{
+			usage.GET("/daily", controller.GetDailyUsage)
+			usage.GET("/daily/range", controller.GetDailyUsageByDateRange)
+		}
+
 		// 管理后台路由
 		admin := api.Group("/admin")
 		{

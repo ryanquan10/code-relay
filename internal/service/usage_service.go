@@ -24,11 +24,13 @@ func NewUsageService() *UsageService {
 
 // RecordTokenUsage 记录 token 使用量
 // customerToken: 客户的 token（Account.Token）
+
 // tokens: 使用的 token 数量
 // consume: 消耗的余额金额
 func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, consume float64) error {
 	// 1. 根据 customerToken 查找 Account
 	account, err := s.accountRepo.GetByToken(customerToken)
+
 	if err != nil {
 		return fmt.Errorf("failed to get account by token: %w", err)
 	}
@@ -52,16 +54,18 @@ func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, con
 		return fmt.Errorf("failed to create usage record: %w", err)
 	}
 
-	// 5. 扣减账户余额（如果 consume > 0）
+	// 5. 增加已使用余额 used_balance（如果 consume > 0）
 	if consume > 0 {
-		if err := s.accountRepo.DeductBalance(account.ID, consume); err != nil {
-			log.Printf("[警告] 扣减余额失败: account_id=%d, consume=%.4f, error=%v",
+		if err := s.accountRepo.IncrementUsedBalance(account.ID, consume); err != nil {
+			log.Printf("[警告] 增加 used_balance 失败: account_id=%d, consume=%.4f, error=%v",
 				account.ID, consume, err)
-			// 注意：这里余额扣减失败不应该阻止 usage 记录的创建
+			// 注意：这里 used_balance 更新失败不应该阻止 usage 记录的创建
 			// 可以根据业务需求决定是否回滚 usage 记录
 		} else {
-			log.Printf("[余额] 账户 %d 扣减 %.4f, 剩余余额: %.4f",
-				account.ID, consume, account.Balance-consume)
+			newUsedBalance := account.UsedBalance + consume
+			remaining := account.Balance - newUsedBalance
+			log.Printf("[余额] 账户 %d 使用 %.4f, UsedBalance: %.4f -> %.4f, 剩余: %.4f",
+				account.ID, consume, account.UsedBalance, newUsedBalance, remaining)
 		}
 	}
 
@@ -201,6 +205,59 @@ func (s *UsageService) GetTodayAllUsage() ([]entity.Usage, error) {
 	}
 
 	return usageList, nil
+}
+
+// GetDailyUsageByToken 获取指定 token 按天分组的使用统计
+// customerToken: 客户的 token
+// startTime: 开始日期
+// endTime: 结束日期
+// 返回每天的消费总额和记录数
+func (s *UsageService) GetDailyUsageByToken(customerToken string, startTime, endTime time.Time) ([]entity.DailyUsage, error) {
+	// 1. 根据 customerToken 查找 Account
+	account, err := s.accountRepo.GetByToken(customerToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account by token: %w", err)
+	}
+	if account == nil {
+		return nil, fmt.Errorf("account not found for token: %s", maskToken(customerToken))
+	}
+
+	// 2. 查询按天分组的使用统计
+	dailyUsages, err := s.usageRepo.GetDailyUsageByAccountId(account.ID, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get daily usage: %w", err)
+	}
+
+	return dailyUsages, nil
+}
+
+// GetDailyUsageByTokenForDays 获取指定 token 最近 N 天的使用统计
+// customerToken: 客户的 token
+// days: 最近多少天（例如 7 表示最近 7 天）
+func (s *UsageService) GetDailyUsageByTokenForDays(customerToken string, days int) ([]entity.DailyUsage, error) {
+	if days <= 0 {
+		days = 7 // 默认最近 7 天
+	}
+
+	// 计算时间范围
+	now := time.Now()
+	endTime := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+	startTime := endTime.AddDate(0, 0, -days+1) // 包含今天
+	startTime = time.Date(startTime.Year(), startTime.Month(), startTime.Day(), 0, 0, 0, 0, startTime.Location())
+
+	return s.GetDailyUsageByToken(customerToken, startTime, endTime)
+}
+
+// GetAllDailyUsage 获取所有账户按天分组的使用统计（管理员功能）
+// startTime: 开始日期
+// endTime: 结束日期
+func (s *UsageService) GetAllDailyUsage(startTime, endTime time.Time) ([]entity.DailyUsage, error) {
+	dailyUsages, err := s.usageRepo.GetDailyUsageGroupByDate(startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all daily usage: %w", err)
+	}
+
+	return dailyUsages, nil
 }
 
 // maskToken 隐藏 token 的中间部分（用于日志）

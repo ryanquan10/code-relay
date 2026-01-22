@@ -66,6 +66,7 @@ func CreateAccount(c *gin.Context) {
 		AccountPassword *string    `json:"account_password"`
 		Token           *string    `json:"token"`
 		Balance         *float64   `json:"balance"`
+		UsedBalance     *float64   `json:"used_balance"`
 		Status          string     `json:"status" binding:"required"`
 		ProductID       int64      `json:"product_id" binding:"required"`
 		UserID          *uint64    `json:"user_id"`
@@ -124,11 +125,17 @@ func CreateAccount(c *gin.Context) {
 		balance = *req.Balance
 	}
 
+	usedBalance := 0.0
+	if req.UsedBalance != nil {
+		usedBalance = *req.UsedBalance
+	}
+
 	account := &entity.Account{
 		AccountEmail:    strings.TrimSpace(req.AccountEmail),
 		AccountPassword: normalizeOptionalString(req.AccountPassword),
 		Token:           token,
 		Balance:         balance,
+		UsedBalance:     usedBalance,
 		Status:          strings.TrimSpace(req.Status),
 		ProductID:       req.ProductID,
 		SourceID:        sourceID,
@@ -154,6 +161,7 @@ func BatchCreateAccounts(c *gin.Context) {
 			AccountPassword *string    `json:"account_password"`
 			Token           *string    `json:"token"`
 			Balance         *float64   `json:"balance"`
+			UsedBalance     *float64   `json:"used_balance"`
 			Status          string     `json:"status" binding:"required"`
 			ProductID       int64      `json:"product_id" binding:"required"`
 			UserID          *uint64    `json:"user_id"`
@@ -222,11 +230,17 @@ func BatchCreateAccounts(c *gin.Context) {
 			balance = *a.Balance
 		}
 
+		usedBalance := 0.0
+		if a.UsedBalance != nil {
+			usedBalance = *a.UsedBalance
+		}
+
 		account := &entity.Account{
 			AccountEmail:    strings.TrimSpace(a.AccountEmail),
 			AccountPassword: normalizeOptionalString(a.AccountPassword),
 			Token:           token,
 			Balance:         balance,
+			UsedBalance:     usedBalance,
 			Status:          strings.TrimSpace(a.Status),
 			ProductID:       a.ProductID,
 			SourceID:        sourceID,
@@ -257,7 +271,8 @@ func UpdateAccountBalance(c *gin.Context) {
 	}
 
 	var req struct {
-		Balance float64 `json:"balance" binding:"required"`
+		Balance     float64  `json:"balance" binding:"required"`
+		UsedBalance *float64 `json:"used_balance"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -269,6 +284,13 @@ func UpdateAccountBalance(c *gin.Context) {
 	if err := repo.UpdateBalance(id, req.Balance); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if req.UsedBalance != nil {
+		if err := repo.UpdateUsedBalance(id, *req.UsedBalance); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "updated"})
@@ -301,6 +323,7 @@ type accountResponse struct {
 	Status           string     `json:"status"`
 	ExpireDate       *time.Time `json:"expire_date"`
 	Balance          float64    `json:"balance"`
+	UsedBalance      float64    `json:"used_balance"`
 	LastRechargeTime *time.Time `json:"last_recharge_time"`
 	Remark           *string    `json:"remark"`
 	Version          int        `json:"version"`
@@ -319,6 +342,7 @@ func newAccountResponse(account *entity.Account) accountResponse {
 		Status:           account.Status,
 		ExpireDate:       account.ExpireDate,
 		Balance:          account.Balance,
+		UsedBalance:      account.UsedBalance,
 		LastRechargeTime: account.LastRechargeTime,
 		Remark:           account.Remark,
 		Version:          account.Version,

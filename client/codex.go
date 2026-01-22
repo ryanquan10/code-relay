@@ -19,17 +19,42 @@ import (
 	"time"
 )
 
-type codexRelay struct{
+type codexRelay struct {
 	tokenConvertService *service.TokenConvertService
 	proxy               *httputil.ReverseProxy
 	upstreamURL         *url.URL
+	logHeaders          bool
 	mu                  sync.RWMutex
+}
+
+// RelayConfig 代理配置
+type RelayConfig struct {
+	UpstreamURL string
+	ProxyURL    string
+	LogHeaders  bool
 }
 
 func NewCodexRelay() *codexRelay {
 	return &codexRelay{
 		tokenConvertService: service.NewTokenConvertService(),
 	}
+}
+
+// NewCodexRelayWithConfig 使用配置创建 codex relay
+func NewCodexRelayWithConfig(config RelayConfig) (*codexRelay, error) {
+	relay := &codexRelay{
+		tokenConvertService: service.NewTokenConvertService(),
+		logHeaders:          config.LogHeaders,
+	}
+
+	// 如果提供了上游 URL，则初始化代理
+	if config.UpstreamURL != "" {
+		if err := relay.setupProxy(config); err != nil {
+			return nil, err
+		}
+	}
+
+	return relay, nil
 }
 
 type contextKey string
@@ -75,6 +100,157 @@ func maskKey(key string) string {
 	return key[:15] + "..." + key[len(key)-8:]
 }
 
+// setupProxy 配置反向代理（从 Relay 中提取的核心逻辑）
+// 注意：此方法不加锁，调用者需要自行处理并发安全
+func (c *codexRelay) setupProxy(config RelayConfig) error {
+	// 解析上游 URL
+	upstreamURL, err := url.Parse(config.UpstreamURL)
+	if err != nil {
+		return fmt.Errorf("无法解析上游地址 %s: %v", config.UpstreamURL, err)
+	}
+	c.upstreamURL = upstreamURL
+
+	// 创建反向代理
+	proxy := httputil.NewSingleHostReverseProxy(upstreamURL)
+
+	// 配置传输层（支持 HTTPS 上游和代理）
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: false, // 验证上游证书
+		},
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 0, // 禁用响应头超时，支持流式响应
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	// 配置代理
+	if config.ProxyURL != "" {
+		// 使用指定的代理
+		proxyURLParsed, err := url.Parse(config.ProxyURL)
+		if err != nil {
+			return fmt.Errorf("无法解析代理地址 %s: %v", config.ProxyURL, err)
+		}
+		transport.Proxy = http.ProxyURL(proxyURLParsed)
+		log.Printf("[Codex] 使用指定代理: %s", config.ProxyURL)
+	} else {
+		// 自动检测系统代理（HTTP_PROXY/HTTPS_PROXY 环境变量）
+		transport.Proxy = http.ProxyFromEnvironment
+	}
+
+	proxy.Transport = transport
+
+	// 自定义请求修改
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		// 记录原始请求
+		clientIP := req.RemoteAddr
+
+		// 调用原始的 Director
+		originalDirector(req)
+
+		// 设置正确的 Host 头
+		req.Host = upstreamURL.Host
+		customerToken := req.Header.Get("Authorization")
+
+		// 去掉 "Bearer " 前缀
+		if strings.HasPrefix(customerToken, "Bearer ") {
+			customerToken = strings.TrimPrefix(customerToken, "Bearer ")
+		}
+
+		// 将 customerToken 存入 context
+		ctx := context.WithValue(req.Context(), customerTokenContextKey, customerToken)
+		*req = *req.WithContext(ctx)
+
+		// 使用 token_convert_service 转换 token 和上流地址
+		upstreamConfig, err := c.tokenConvertService.ConvertToken(customerToken)
+		if err != nil {
+			log.Printf("[Codex TokenConvert] 转换失败: %v, 使用默认配置", err)
+			// 如果转换失败，使用默认的 token 测试用于
+			req.Header.Set("Authorization", "Bearer "+customerToken)
+			log.Printf("[Codex TokenConvert] 使用了缺省 token")
+			log.Printf("[Codex TokenConvert] 失败时用户 customerToken: %s", maskKey(customerToken))
+		} else {
+			// 使用转换后的上流 token
+			req.Header.Set("Authorization", "Bearer "+upstreamConfig.UpstreamToken)
+			log.Printf("[Codex TokenConvert] 使用上流 URL: %s", upstreamConfig.UpstreamURL)
+			log.Printf("[Codex TokenConvert] 使用了用户 token")
+			log.Printf("[Codex TokenConvert] 成功时 upstreamConfig: %+v", upstreamConfig)
+		}
+		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
+
+		// 日志记录
+		log.Printf("[Codex] 转发请求: %s %s -> %s://%s%s [用户: %s]",
+			req.Method, clientIP, upstreamURL.Scheme, upstreamURL.Host, req.URL.Path, maskKey(customerToken))
+
+		if c.logHeaders {
+			log.Printf("  请求头: %v", req.Header)
+		}
+
+		// 如果是流式请求，记录
+		if strings.Contains(req.Header.Get("Accept"), "text/event-stream") {
+			log.Printf("  检测到 SSE 流式请求")
+		}
+
+		// 统计请求流量 (上行)
+		if req.Body != nil && req.Body != http.NoBody && customerToken != "" {
+			counter := getOrCreateCounter(customerToken)
+			req.Body = service.NewCountingReadCloser(req.Body, counter)
+		}
+	}
+
+	// 自定义响应修改
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		// 从 context 获取 customerToken
+		customerToken := ""
+		if key := resp.Request.Context().Value(customerTokenContextKey); key != nil {
+			customerToken = key.(string)
+		}
+
+		// 统计响应流量 (下行)
+		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
+			counter := getOrCreateCounter(customerToken)
+			resp.Body = service.NewCountingReadCloser(resp.Body, counter)
+		}
+
+		log.Printf("[Codex] 收到响应: %s %d %s [用户: %s]",
+			resp.Request.URL.Path, resp.StatusCode, resp.Status, maskKey(customerToken))
+
+		if c.logHeaders {
+			log.Printf("  响应头: %v", resp.Header)
+		}
+
+		return nil
+	}
+
+	// 自定义错误处理
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		log.Printf("[Codex] 代理错误 [%s %s]: %v", r.Method, r.URL.Path, err)
+
+		// 即使出错也尝试刷新计数器
+		if key := r.Context().Value(customerTokenContextKey); key != nil {
+			customerToken := key.(string)
+			if counter := getOrCreateCounter(customerToken); counter != nil {
+				if flushErr := counter.Flush(); flushErr != nil {
+					log.Printf("[Codex 警告] 刷新计数器失败: %v", flushErr)
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprintf(w, `{"error": "代理转发失败", "details": "%v", "upstream": "%s"}`,
+			err, config.UpstreamURL)
+	}
+
+	c.proxy = proxy
+	log.Printf("[Codex] 代理配置完成: 上游 %s", config.UpstreamURL)
+	return nil
+}
+
 func (c *codexRelay) Relay() {
 	var (
 		listen      string
@@ -117,154 +293,24 @@ func (c *codexRelay) Relay() {
 		log.Printf("日志同时写入文件: %s", logFilePath)
 	}
 
-	// 解析上游 URL
-	upstreamURL, err := url.Parse(upstream)
-	if err != nil {
-		log.Fatalf("无法解析上游地址 %s: %v", upstream, err)
+	// 使用 setupProxy 配置代理
+	config := RelayConfig{
+		UpstreamURL: upstream,
+		ProxyURL:    proxyURL,
+		LogHeaders:  logHeaders,
 	}
 
-	// 创建反向代理
-	proxy := httputil.NewSingleHostReverseProxy(upstreamURL)
-
-	// 配置传输层（支持 HTTPS 上游和代理）
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: false, // 验证上游证书
-		},
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 0, // 禁用响应头超时，支持流式响应
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-
-	// 配置代理
-	if proxyURL != "" {
-		// 使用命令行指定的代理
-		proxyURLParsed, err := url.Parse(proxyURL)
-		if err != nil {
-			log.Fatalf("无法解析代理地址 %s: %v", proxyURL, err)
-		}
-		transport.Proxy = http.ProxyURL(proxyURLParsed)
-		log.Printf("使用指定代理: %s", proxyURL)
-	} else {
-		// 自动检测系统代理（HTTP_PROXY/HTTPS_PROXY 环境变量）
-		transport.Proxy = http.ProxyFromEnvironment
-	}
-
-	proxy.Transport = transport
-
-	// 自定义请求修改
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		// 记录原始请求
-		clientIP := req.RemoteAddr
-
-		// 调用原始的 Director
-		originalDirector(req)
-
-		// 设置正确的 Host 头
-		req.Host = upstreamURL.Host
-		customerToken := req.Header.Get("Authorization")
-
-		// 去掉 "Bearer " 前缀
-		if strings.HasPrefix(customerToken, "Bearer ") {
-			customerToken = strings.TrimPrefix(customerToken, "Bearer ")
-		}
-
-		// 将 customerToken 存入 context
-		ctx := context.WithValue(req.Context(), customerTokenContextKey, customerToken)
-		*req = *req.WithContext(ctx)
-
-		// 使用 token_convert_service 转换 token 和上流地址
-		upstreamConfig, err := c.tokenConvertService.ConvertToken(customerToken)
-		if err != nil {
-			log.Printf("[TokenConvert] 转换失败: %v, 使用默认配置", err)
-			// 如果转换失败，使用默认的 token (兜底方案)
-			req.Header.Set("Authorization", "Bearer sk-ant-oat01-3pOZJw3eh_LRataPfuRKvSS2_7I99bUKdX3AfbRfPkoHx3RbzoYSEaAa2NC3pdyERGr-zZLyE5vSRA5UeVNPH9gopj2NYAA")
-		} else {
-			// 使用转换后的上流 token
-			req.Header.Set("Authorization", "Bearer "+upstreamConfig.UpstreamToken)
-			log.Printf("[TokenConvert] 使用上流 URL: %s", upstreamConfig.UpstreamURL)
-			// 注意：这里可以根据 upstreamConfig.UpstreamURL 动态修改请求的目标地址
-			// 但由于当前的反向代理设计是在启动时固定上游地址，如果需要动态路由，
-			// 需要重构代理逻辑，使用多个上游或者动态创建代理
-		}
-		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
-		req.Header.Set("X-Forwarded-Proto", "https")
-		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
-
-		// 日志记录
-		log.Printf("转发请求: %s %s -> %s://%s%s [用户: %s]",
-			req.Method, clientIP, upstreamURL.Scheme, upstreamURL.Host, req.URL.Path, maskKey(customerToken))
-
-		if logHeaders {
-			log.Printf("  请求头: %v", req.Header)
-		}
-
-		// 如果是流式请求，记录
-		if strings.Contains(req.Header.Get("Accept"), "text/event-stream") {
-			log.Printf("  检测到 SSE 流式请求")
-		}
-
-		// 统计请求流量 (上行)
-		if req.Body != nil && req.Body != http.NoBody && customerToken != "" {
-			counter := getOrCreateCounter(customerToken)
-			req.Body = service.NewCountingReadCloser(req.Body, counter)
-		}
-	}
-
-	// 自定义响应修改
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		// 从 context 获取 customerToken
-		customerToken := ""
-		if key := resp.Request.Context().Value(customerTokenContextKey); key != nil {
-			customerToken = key.(string)
-		}
-
-		// 统计响应流量 (下行)
-		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
-			counter := getOrCreateCounter(customerToken)
-			resp.Body = service.NewCountingReadCloser(resp.Body, counter)
-		}
-
-		log.Printf("收到响应: %s %d %s [用户: %s]",
-			resp.Request.URL.Path, resp.StatusCode, resp.Status, maskKey(customerToken))
-
-		if logHeaders {
-			log.Printf("  响应头: %v", resp.Header)
-		}
-
-		return nil
-	}
-
-	// 自定义错误处理
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("代理错误 [%s %s]: %v", r.Method, r.URL.Path, err)
-
-		// 即使出错也尝试刷新计数器
-		if key := r.Context().Value(customerTokenContextKey); key != nil {
-			customerToken := key.(string)
-			if counter := getOrCreateCounter(customerToken); counter != nil {
-				if flushErr := counter.Flush(); flushErr != nil {
-					log.Printf("[警告] 刷新计数器失败: %v", flushErr)
-				}
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, `{"error": "代理转发失败", "details": "%v", "upstream": "%s"}`,
-			err, upstream)
+	if err := c.setupProxy(config); err != nil {
+		log.Fatalf("配置代理失败: %v", err)
 	}
 
 	// 添加健康检查端点
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "OK - Relay to %s\n", upstream)
+		fmt.Fprintf(w, "OK - Relay to %s\n", c.upstreamURL.String())
 	})
-	mux.Handle("/", proxy)
+	mux.Handle("/", c.proxy)
 
 	// 设置 HTTP 服务器
 	server := &http.Server{
@@ -345,123 +391,30 @@ func init() {
 
 // HandleRequest 处理HTTP请求并转发到上游
 func (c *codexRelay) HandleRequest(w http.ResponseWriter, r *http.Request) {
-	// 默认上游地址
-	upstreamURLStr := "https://code.newcli.com"
-
-	// 解析上游 URL
-	upstreamURL, err := url.Parse(upstreamURLStr)
-	if err != nil {
-		log.Printf("[Codex] 无法解析上游地址 %s: %v", upstreamURLStr, err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	// 创建反向代理
-	proxy := httputil.NewSingleHostReverseProxy(upstreamURL)
-
-	// 配置传输层
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: false,
-		},
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 0,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-
-	// 自动检测系统代理
-	transport.Proxy = http.ProxyFromEnvironment
-	proxy.Transport = transport
-
-	// 自定义请求修改
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		clientIP := req.RemoteAddr
-
-		// 调用原始的 Director
-		originalDirector(req)
-
-		// 设置正确的 Host 头
-		req.Host = upstreamURL.Host
-
-		// 获取客户端 token
-		customerToken := req.Header.Get("Authorization")
-		if strings.HasPrefix(customerToken, "Bearer ") {
-			customerToken = strings.TrimPrefix(customerToken, "Bearer ")
-		}
-
-		// 将 customerToken 存入 context
-		ctx := context.WithValue(req.Context(), customerTokenContextKey, customerToken)
-		*req = *req.WithContext(ctx)
-
-		// 使用 token_convert_service 转换 token 和上流地址
-		upstreamConfig, err := c.tokenConvertService.ConvertToken(customerToken)
-		if err != nil {
-			log.Printf("[Codex TokenConvert] 转换失败: %v, 使用默认配置", err)
-			// 如果转换失败，使用默认的 token (兜底方案)
-			req.Header.Set("Authorization", "Bearer sk-ant-oat01-3pOZJw3eh_LRataPfuRKvSS2_7I99bUKdX3AfbRfPkoHx3RbzoYSEaAa2NC3pdyERGr-zZLyE5vSRA5UeVNPH9gopj2NYAA")
-		} else {
-			// 使用转换后的上流 token
-			req.Header.Set("Authorization", "Bearer "+upstreamConfig.UpstreamToken)
-			log.Printf("[Codex TokenConvert] 使用上流 URL: %s", upstreamConfig.UpstreamURL)
-		}
-
-		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
-		req.Header.Set("X-Forwarded-Proto", "https")
-		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
-
-		log.Printf("[Codex] 转发请求: %s %s -> %s://%s%s [用户: %s]",
-			req.Method, clientIP, upstreamURL.Scheme, upstreamURL.Host, req.URL.Path, maskKey(customerToken))
-
-		// 统计请求流量 (上行)
-		if req.Body != nil && req.Body != http.NoBody && customerToken != "" {
-			counter := getOrCreateCounter(customerToken)
-			req.Body = service.NewCountingReadCloser(req.Body, counter)
-		}
-	}
-
-	// 自定义响应修改
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		// 从 context 获取 customerToken
-		customerToken := ""
-		if key := resp.Request.Context().Value(customerTokenContextKey); key != nil {
-			customerToken = key.(string)
-		}
-
-		// 统计响应流量 (下行)
-		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
-			counter := getOrCreateCounter(customerToken)
-			resp.Body = service.NewCountingReadCloser(resp.Body, counter)
-		}
-
-		log.Printf("[Codex] 收到响应: %s %d %s [用户: %s]",
-			resp.Request.URL.Path, resp.StatusCode, resp.Status, maskKey(customerToken))
-
-		return nil
-	}
-
-	// 自定义错误处理
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("[Codex] 代理错误 [%s %s]: %v", r.Method, r.URL.Path, err)
-
-		// 即使出错也尝试刷新计数器
-		if key := r.Context().Value(customerTokenContextKey); key != nil {
-			customerToken := key.(string)
-			if counter := getOrCreateCounter(customerToken); counter != nil {
-				if flushErr := counter.Flush(); flushErr != nil {
-					log.Printf("[Codex 警告] 刷新计数器失败: %v", flushErr)
-				}
+	// 如果代理未配置，使用默认配置初始化
+	if c.proxy == nil {
+		log.Printf("[Codex] 代理未初始化，开始初始化...")
+		c.mu.Lock()
+		// 双重检查
+		if c.proxy == nil {
+			config := RelayConfig{
+				UpstreamURL: "https://code.newcli.com",
+				ProxyURL:    "", // 使用系统代理
+				LogHeaders:  false,
 			}
+			log.Printf("[Codex] 正在配置代理，上游: %s", config.UpstreamURL)
+			if err := c.setupProxy(config); err != nil {
+				c.mu.Unlock()
+				log.Printf("[Codex] 初始化代理失败: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			log.Printf("[Codex] 代理初始化完成")
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, `{"error": "代理转发失败", "details": "%v", "upstream": "%s"}`,
-			err, upstreamURLStr)
+		c.mu.Unlock()
 	}
 
-	// 执行代理
-	proxy.ServeHTTP(w, r)
+	// 使用已配置的代理处理请求
+	log.Printf("[Codex] 开始处理请求: %s %s", r.Method, r.URL.Path)
+	c.proxy.ServeHTTP(w, r)
 }

@@ -181,3 +181,56 @@ func (r *UsageRepository) GetById(id uint64) (*entity.Usage, error) {
 
 	return &usage, nil
 }
+
+// GetDailyUsageByAccountId 获取指定账户按天分组的使用统计
+// startTime: 开始日期
+// endTime: 结束日期
+// 返回每天的消费总额和记录数
+func (r *UsageRepository) GetDailyUsageByAccountId(accountId uint64, startTime, endTime time.Time) ([]entity.DailyUsage, error) {
+	db := mysql.DB()
+	if db == nil {
+		return nil, fmt.Errorf("database connection is not initialized")
+	}
+
+	var dailyUsages []entity.DailyUsage
+
+	// 使用 DATE(create_time) 按天分组
+	err := db.Model(&entity.Usage{}).
+		Select("DATE(create_time) as date, SUM(consume) as total_consume, COUNT(*) as record_count").
+		Where("account_id = ? AND create_time >= ? AND create_time < ?",
+			accountId, startTime, endTime).
+		Group("DATE(create_time)").
+		Order("date DESC").
+		Scan(&dailyUsages).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get daily usage for account %d: %w", accountId, err)
+	}
+
+	return dailyUsages, nil
+}
+
+// GetDailyUsageByToken 获取指定 token 按天分组的使用统计（需要先查询 account_id）
+// 这个方法在 Service 层调用会更合适，这里仅提供基础查询
+func (r *UsageRepository) GetDailyUsageGroupByDate(startTime, endTime time.Time) ([]entity.DailyUsage, error) {
+	db := mysql.DB()
+	if db == nil {
+		return nil, fmt.Errorf("database connection is not initialized")
+	}
+
+	var dailyUsages []entity.DailyUsage
+
+	// 获取所有账户按天分组的统计
+	err := db.Model(&entity.Usage{}).
+		Select("DATE(create_time) as date, SUM(consume) as total_consume, COUNT(*) as record_count").
+		Where("create_time >= ? AND create_time < ?", startTime, endTime).
+		Group("DATE(create_time)").
+		Order("date DESC").
+		Scan(&dailyUsages).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get daily usage: %w", err)
+	}
+
+	return dailyUsages, nil
+}

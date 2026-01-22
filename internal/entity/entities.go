@@ -7,8 +7,8 @@ import (
 
 // AccountSource 账号供应商（存储上游地址）
 type AccountSource struct {
-	ID         int64           `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
-	SourceName string          `db:"source_name" json:"source_name" gorm:"type:varchar(100);not null"`
+	ID            int64           `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	SourceName    string          `db:"source_name" json:"source_name" gorm:"type:varchar(100);not null"`
 	UpstreamURL   *string         `db:"upstream_url" json:"upstream_url" gorm:"type:varchar(255)"`
 	UpstreamToken *string         `db:"upstream_token" json:"upstream_token" gorm:"type:varchar(255)"`
 	SourceType    string          `db:"source_type" json:"source_type" gorm:"type:varchar(50);not null"`
@@ -27,33 +27,33 @@ func (AccountSource) TableName() string {
 
 // Product 产品
 type Product struct {
-	ID               int64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
-	ProductCode      string    `db:"product_code" json:"product_code" gorm:"type:varchar(100);uniqueIndex;not null"`
-	ProductName      string    `db:"product_name" json:"product_name" gorm:"type:varchar(200);not null"`
-	AccountType      string    `db:"account_type" json:"account_type" gorm:"type:varchar(100)"`
-	Category         *string   `db:"category" json:"category" gorm:"type:varchar(100);index"`
-	Icon             *string   `db:"icon" json:"icon" gorm:"type:varchar(255)"`
-	ImageURL         *string   `db:"image_url" json:"image_url" gorm:"type:varchar(255)"`
-	DownStreamURL    *string   `db:"down_stream_url" json:"down_stream_url" gorm:"type:varchar(255)"`
-	Description      *string   `db:"description" json:"description" gorm:"type:text"`
-	Price            float64   `db:"price" json:"price" gorm:"type:decimal(10,2);default:0"`
-	OriginalPrice    *float64  `db:"original_price" json:"original_price" gorm:"type:decimal(10,2)"`
-	SalesCount       int       `db:"sales_count" json:"sales_count" gorm:"default:0"`
-	ContactInfo      *string   `db:"contact_info" json:"contact_info" gorm:"type:text"`
-	UsageInstruction *string   `db:"usage_instruction" json:"usage_instruction" gorm:"type:text"`
-	ValidityDays     int       `db:"validity_days" json:"validity_days" gorm:"default:9999"`
-	SharedLimit      int       `db:"shared_limit" json:"shared_limit" gorm:"default:0"`
-	CostPrice      float64 `db:"cost_price" json:"cost_price" gorm:"type:decimal(10,2);default:0"`
-	DefaultBalance float64 `db:"default_balance" json:"default_balance" gorm:"type:decimal(10,2);default:0"`
-	OriginalBalance float64 `db:"original_balance" json:"original_balance" gorm:"type:decimal(10,2);default:0"`
-	Stock          int     `db:"stock" json:"stock" gorm:"default:0"`
-	AutoDelivery bool      `db:"auto_delivery" json:"auto_delivery" gorm:"default:false"`
-	SortOrder    int       `db:"sort_order" json:"sort_order" gorm:"default:0"`
-	Status       int       `db:"status" json:"status" gorm:"default:1;index"`
-	Version      int       `db:"version" json:"version" gorm:"default:0"` // 乐观锁：库存
-	
-	CreateTime   time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
-	UpdateTime   time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+	ID               int64    `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	ProductCode      string   `db:"product_code" json:"product_code" gorm:"type:varchar(100);uniqueIndex;not null"`
+	ProductName      string   `db:"product_name" json:"product_name" gorm:"type:varchar(200);not null"`
+	AccountType      string   `db:"account_type" json:"account_type" gorm:"type:varchar(100)"`
+	Category         *string  `db:"category" json:"category" gorm:"type:varchar(100);index"`
+	Icon             *string  `db:"icon" json:"icon" gorm:"type:varchar(255)"`
+	ImageURL         *string  `db:"image_url" json:"image_url" gorm:"type:varchar(255)"`
+	DownStreamURL    *string  `db:"down_stream_url" json:"down_stream_url" gorm:"type:varchar(255)"`
+	Description      *string  `db:"description" json:"description" gorm:"type:text"`
+	Price            float64  `db:"price" json:"price" gorm:"type:decimal(10,2);default:0"`
+	OriginalPrice    *float64 `db:"original_price" json:"original_price" gorm:"type:decimal(10,2)"`
+	SalesCount       int      `db:"sales_count" json:"sales_count" gorm:"default:0"`
+	ContactInfo      *string  `db:"contact_info" json:"contact_info" gorm:"type:text"`
+	UsageInstruction *string  `db:"usage_instruction" json:"usage_instruction" gorm:"type:text"`
+	ValidityDays     int      `db:"validity_days" json:"validity_days" gorm:"default:9999"`
+	SharedLimit      int      `db:"shared_limit" json:"shared_limit" gorm:"default:0"`
+	CostPrice        float64  `db:"cost_price" json:"cost_price" gorm:"type:decimal(10,2);default:0"`
+	DefaultBalance   float64  `db:"default_balance" json:"default_balance" gorm:"type:decimal(10,2);default:0"`
+	OriginalBalance  float64  `db:"original_balance" json:"original_balance" gorm:"type:decimal(10,2);default:0"`
+	Stock            int      `db:"stock" json:"stock" gorm:"default:0"`
+	AutoDelivery     bool     `db:"auto_delivery" json:"auto_delivery" gorm:"default:false"`
+	SortOrder        int      `db:"sort_order" json:"sort_order" gorm:"default:0"`
+	Status           int      `db:"status" json:"status" gorm:"default:1;index"`
+	Version          int      `db:"version" json:"version" gorm:"default:0"` // 乐观锁：库存
+
+	CreateTime time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
 
 func (Product) TableName() string {
@@ -86,6 +86,7 @@ type Account struct {
 	Status           string     `db:"status" json:"status" gorm:"type:varchar(50);default:'active';index"`
 	ExpireDate       *time.Time `db:"expire_date" json:"expire_date" gorm:"index"`
 	Balance          float64    `db:"balance" json:"balance" gorm:"type:decimal(10,2);default:0"`
+	UsedBalance      float64    `db:"used_balance" json:"used_balance" gorm:"type:decimal(10,2);default:0;comment:'已使用余额'"`
 	LastRechargeTime *time.Time `db:"last_recharge_time" json:"last_recharge_time"`
 	Remark           *string    `db:"remark" json:"remark" gorm:"type:text"`
 	Version          int        `db:"version" json:"version" gorm:"default:0"` // 乐观锁：余额
@@ -110,9 +111,16 @@ func (Usage) TableName() string {
 	return "usage"
 }
 
+// DailyUsage 按天统计的使用量
+type DailyUsage struct {
+	Date         string  `json:"date"`          // 日期格式: 2006-01-02
+	TotalConsume float64 `json:"total_consume"` // 当天总消费
+	RecordCount  int64   `json:"record_count"`  // 记录条数
+}
+
 // AccountSourceConfig 供应商配置（存储在 AccountSource.Config JSON 字段中）
 type AccountSourceConfig struct {
-	APIURL      *string `json:"api_url"`       // 上游地址
+	APIURL      *string `json:"api_url"` // 上游地址
 	APIKey      *string `json:"api_key"`
 	HandlerType string  `json:"handler_type"` // 处理器类型
 }
