@@ -13,7 +13,7 @@ type MenuConfig = {
 };
 
 const menuConfig: Record<string, MenuConfig> = {
-  sources: { title: '发卡来源管理', component: SourcesTab },
+  sources: { title: '账号来源管理', component: SourcesTab },
   products: { title: '产品管理', component: ProductsTab },
   accounts: { title: '账号管理', component: AccountsTab },
   usage: { title: '使用量查看', component: UsageTab },

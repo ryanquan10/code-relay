@@ -37,14 +37,20 @@ export default api;
 
 // API 接口定义
 
-// 货源管理
+// 账号供应商管理
 export interface Source {
   id: number;
-  name: string;
-  description: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
+  source_name: string;
+  upstream_url?: string | null;
+  upstream_token?: string | null;
+  source_type: string;
+  config: Record<string, unknown> | string | null;
+  priority: number;
+  auto_rental: boolean;
+  status: number;
+  remark?: string | null;
+  create_time: string;
+  update_time: string;
 }
 
 export const sourceAPI = {
@@ -60,19 +66,34 @@ export interface Product {
   product_code: string;
   product_name: string;
   account_type: string;
-  category: string;
+  category?: string | null;
+  icon?: string | null;
+  image_url?: string | null;
+  down_stream_url?: string | null;
+  description?: string | null;
   price: number;
-  original_price?: number;
+  original_price?: number | null;
+  sales_count: number;
+  contact_info?: string | null;
+  usage_instruction?: string | null;
   validity_days: number;
   shared_limit: number;
-  sales_count: number;
   auto_delivery: boolean;
   sort_order: number;
-  status: string;
-  description: string;
-  created_at: string;
-  updated_at: string;
-  source_ids: number[];
+  status: number;
+  cost_price: number;
+  default_balance: number;
+  original_balance: number;
+  stock: number;
+  version: number;
+  sources?: ProductSource[];
+  create_time: string;
+  update_time: string;
+}
+
+export interface ProductSource {
+  source_id: number;
+  weight: number;
 }
 
 export const productAPI = {
@@ -85,14 +106,20 @@ export const productAPI = {
 // 账号管理
 export interface Account {
   id: number;
-  user_id: number;
-  product_id: number;
   account_email: string;
-  token: string;
+  account_password?: string | null;
+  token?: string | null;
+  product_id: number;
+  source_id: number;
+  user_id?: number | null;
   balance: number;
   status: string;
-  created_at: string;
-  updated_at: string;
+  expire_date?: string | null;
+  last_recharge_time?: string | null;
+  remark?: string | null;
+  version: number;
+  create_time: string;
+  update_time: string;
 }
 
 export const accountAPI = {

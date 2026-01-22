@@ -9,21 +9,23 @@ import (
 type AccountSource struct {
 	ID         int64           `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
 	SourceName string          `db:"source_name" json:"source_name" gorm:"type:varchar(100);not null"`
-	SourceType string          `db:"source_type" json:"source_type" gorm:"type:varchar(50);not null"`
-	Config     json.RawMessage `db:"config" json:"config" gorm:"type:json"` // 上游地址、API配置等
-	Priority   int             `db:"priority" json:"priority" gorm:"default:1"`
-	AutoRental bool            `db:"auto_rental" json:"auto_rental" gorm:"default:false"`
-	Status     int             `db:"status" json:"status" gorm:"default:1"`
-	Remark     *string         `db:"remark" json:"remark" gorm:"type:text"`
-	CreateTime time.Time       `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
-	UpdateTime time.Time       `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+	UpstreamURL   *string         `db:"upstream_url" json:"upstream_url" gorm:"type:varchar(255)"`
+	UpstreamToken *string         `db:"upstream_token" json:"upstream_token" gorm:"type:varchar(255)"`
+	SourceType    string          `db:"source_type" json:"source_type" gorm:"type:varchar(50);not null"`
+	Config        json.RawMessage `db:"config" json:"config" gorm:"type:json"` // 上游地址、API配置等
+	Priority      int             `db:"priority" json:"priority" gorm:"default:1"`
+	AutoRental    bool            `db:"auto_rental" json:"auto_rental" gorm:"default:false"`
+	Status        int             `db:"status" json:"status" gorm:"default:1"`
+	Remark        *string         `db:"remark" json:"remark" gorm:"type:text"`
+	CreateTime    time.Time       `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime    time.Time       `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
 
 func (AccountSource) TableName() string {
 	return "account_source"
 }
 
-// Product 产品（合并了原 ProductSource 的业务字段）
+// Product 产品
 type Product struct {
 	ID               int64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
 	ProductCode      string    `db:"product_code" json:"product_code" gorm:"type:varchar(100);uniqueIndex;not null"`
@@ -32,6 +34,7 @@ type Product struct {
 	Category         *string   `db:"category" json:"category" gorm:"type:varchar(100);index"`
 	Icon             *string   `db:"icon" json:"icon" gorm:"type:varchar(255)"`
 	ImageURL         *string   `db:"image_url" json:"image_url" gorm:"type:varchar(255)"`
+	DownStreamURL    *string   `db:"down_stream_url" json:"down_stream_url" gorm:"type:varchar(255)"`
 	Description      *string   `db:"description" json:"description" gorm:"type:text"`
 	Price            float64   `db:"price" json:"price" gorm:"type:decimal(10,2);default:0"`
 	OriginalPrice    *float64  `db:"original_price" json:"original_price" gorm:"type:decimal(10,2)"`
@@ -40,23 +43,35 @@ type Product struct {
 	UsageInstruction *string   `db:"usage_instruction" json:"usage_instruction" gorm:"type:text"`
 	ValidityDays     int       `db:"validity_days" json:"validity_days" gorm:"default:9999"`
 	SharedLimit      int       `db:"shared_limit" json:"shared_limit" gorm:"default:0"`
-
-	// 原 ProductSource 的字段
-	SourceID       int64   `db:"source_id" json:"source_id" gorm:"not null;index"`
 	CostPrice      float64 `db:"cost_price" json:"cost_price" gorm:"type:decimal(10,2);default:0"`
 	DefaultBalance float64 `db:"default_balance" json:"default_balance" gorm:"type:decimal(10,2);default:0"`
+	OriginalBalance float64 `db:"original_balance" json:"original_balance" gorm:"type:decimal(10,2);default:0"`
 	Stock          int     `db:"stock" json:"stock" gorm:"default:0"`
-
 	AutoDelivery bool      `db:"auto_delivery" json:"auto_delivery" gorm:"default:false"`
 	SortOrder    int       `db:"sort_order" json:"sort_order" gorm:"default:0"`
 	Status       int       `db:"status" json:"status" gorm:"default:1;index"`
 	Version      int       `db:"version" json:"version" gorm:"default:0"` // 乐观锁：库存
+	
 	CreateTime   time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
 	UpdateTime   time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
 
 func (Product) TableName() string {
 	return "product"
+}
+
+// AccountSourceProcut 账号供应商与产品关系
+type AccountSourceProcut struct {
+	ID         int64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	ProductID  int64     `db:"product_id" json:"product_id" gorm:"not null;index"`
+	SourceID   int64     `db:"source_id" json:"source_id" gorm:"not null;index"`
+	Weight     int       `db:"weight" json:"weight" gorm:"default:0"`
+	CreateTime time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+}
+
+func (AccountSourceProcut) TableName() string {
+	return "account_source_procut"
 }
 
 // Account 账号实例

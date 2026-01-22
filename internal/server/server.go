@@ -1,6 +1,7 @@
 package server
 
 import (
+	"codex-relay/client"
 	"codex-relay/config"
 	"codex-relay/internal/controller"
 	"embed"
@@ -108,6 +109,32 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			admin.GET("/usage/stats", controller.GetUsageStats)
 		}
 	}
+
+	// ==================== Codex 中继路由 ====================
+	// 动态路由：根据 URL 第一段匹配对应的 client
+	// 例如: /codex/v1/xxx -> 匹配 AppType="codex" 的客户端
+	engine.Any("/:appType/*path", func(c *gin.Context) {
+		appType := c.Param("appType")
+
+		// 跳过已知的路由前缀
+		if appType == "api" || appType == "assets" {
+			c.Next()
+			return
+		}
+
+		// 根据 appType 查找对应的客户端
+		relayClient, exists := client.GetClient(appType)
+		if !exists {
+			// 如果找不到对应的客户端，继续执行后续路由（最终会到 NoRoute）
+			c.Next()
+			return
+		}
+
+		// 使用找到的客户端处理请求
+		log.Printf("[路由] 匹配到客户端类型: %s, 路径: %s", appType, c.Request.URL.Path)
+		relayClient.HandleRequest(c.Writer, c.Request)
+		c.Abort() // 终止后续处理
+	})
 
 	// ==================== 静态资源路由 ====================
 	// 处理 /assets/* 下的静态资源

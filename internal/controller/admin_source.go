@@ -7,11 +7,12 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-// ListSources 获取货源列表
+// ListSources 获取账号供应商列表
 func ListSources(c *gin.Context) {
 	db := mysql.DB()
 	if db == nil {
@@ -28,41 +29,10 @@ func ListSources(c *gin.Context) {
 	}
 
 	log.Printf("[ListSources] Found %d sources", len(sources))
-
-	// 转换为前端需要的格式
-	type SourceResponse struct {
-		ID          int64  `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Status      string `json:"status"`
-		CreatedAt   string `json:"created_at"`
-		UpdatedAt   string `json:"updated_at"`
-	}
-
-	response := make([]SourceResponse, 0)
-	for _, s := range sources {
-		status := "inactive"
-		if s.Status == 1 {
-			status = "active"
-		}
-		remark := ""
-		if s.Remark != nil {
-			remark = *s.Remark
-		}
-		response = append(response, SourceResponse{
-			ID:          s.ID,
-			Name:        s.SourceName,
-			Description: remark,
-			Status:      status,
-			CreatedAt:   s.CreateTime.Format("2006-01-02 15:04:05"),
-			UpdatedAt:   s.UpdateTime.Format("2006-01-02 15:04:05"),
-		})
-	}
-
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, sources)
 }
 
-// CreateSource 创建货源
+// CreateSource 创建账号供应商
 func CreateSource(c *gin.Context) {
 	db := mysql.DB()
 	if db == nil {
@@ -71,9 +41,15 @@ func CreateSource(c *gin.Context) {
 	}
 
 	var req struct {
-		Name        string `json:"name" binding:"required"`
-		Description string `json:"description"`
-		Status      string `json:"status"`
+		SourceName    string          `json:"source_name" binding:"required"`
+		UpstreamURL   *string         `json:"upstream_url"`
+		UpstreamToken *string         `json:"upstream_token"`
+		SourceType    string          `json:"source_type" binding:"required"`
+		Config        json.RawMessage `json:"config"`
+		Priority      *int            `json:"priority"`
+		AutoRental    *bool           `json:"auto_rental"`
+		Status        *int            `json:"status"`
+		Remark        *string         `json:"remark"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -81,27 +57,49 @@ func CreateSource(c *gin.Context) {
 		return
 	}
 
-	status := 0
-	if req.Status == "active" {
-		status = 1
+	if strings.TrimSpace(req.SourceName) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "source_name cannot be empty"})
+		return
+	}
+	if strings.TrimSpace(req.SourceType) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "source_type cannot be empty"})
+		return
 	}
 
-	// 创建默认的 Config JSON
-	config := entity.AccountSourceConfig{
-		APIURL:      nil,
-		APIKey:      nil,
-		HandlerType: "manual",
+	priority := 1
+	if req.Priority != nil {
+		priority = *req.Priority
 	}
-	configJSON, _ := json.Marshal(config)
+	autoRental := false
+	if req.AutoRental != nil {
+		autoRental = *req.AutoRental
+	}
+	status := 1
+	if req.Status != nil {
+		status = *req.Status
+	}
+	remark := normalizeOptionalString(req.Remark)
+
+	config := req.Config
+	if len(config) == 0 {
+		defaultConfig, _ := json.Marshal(entity.AccountSourceConfig{
+			APIURL:      nil,
+			APIKey:      nil,
+			HandlerType: "manual",
+		})
+		config = defaultConfig
+	}
 
 	source := entity.AccountSource{
-		SourceName: req.Name,
-		SourceType: "manual",
-		Config:     configJSON,
-		Priority:   1,
-		AutoRental: false,
-		Status:     status,
-		Remark:     &req.Description,
+		SourceName:    req.SourceName,
+		UpstreamURL:   normalizeOptionalString(req.UpstreamURL),
+		UpstreamToken: normalizeOptionalString(req.UpstreamToken),
+		SourceType:    req.SourceType,
+		Config:        config,
+		Priority:      priority,
+		AutoRental:    autoRental,
+		Status:        status,
+		Remark:        remark,
 	}
 
 	if err := db.Create(&source).Error; err != nil {
@@ -112,7 +110,7 @@ func CreateSource(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": source.ID})
 }
 
-// UpdateSource 更新货源
+// UpdateSource 更新账号供应商
 func UpdateSource(c *gin.Context) {
 	db := mysql.DB()
 	if db == nil {
@@ -127,9 +125,15 @@ func UpdateSource(c *gin.Context) {
 	}
 
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Status      string `json:"status"`
+		SourceName    *string          `json:"source_name"`
+		UpstreamURL   *string          `json:"upstream_url"`
+		UpstreamToken *string          `json:"upstream_token"`
+		SourceType    *string          `json:"source_type"`
+		Config        *json.RawMessage `json:"config"`
+		Priority      *int             `json:"priority"`
+		AutoRental    *bool            `json:"auto_rental"`
+		Status        *int             `json:"status"`
+		Remark        *string          `json:"remark"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -143,18 +147,40 @@ func UpdateSource(c *gin.Context) {
 		return
 	}
 
-	if req.Name != "" {
-		source.SourceName = req.Name
-	}
-	if req.Description != "" {
-		source.Remark = &req.Description
-	}
-	if req.Status != "" {
-		if req.Status == "active" {
-			source.Status = 1
-		} else {
-			source.Status = 0
+	if req.SourceName != nil {
+		if strings.TrimSpace(*req.SourceName) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "source_name cannot be empty"})
+			return
 		}
+		source.SourceName = *req.SourceName
+	}
+	if req.SourceType != nil {
+		if strings.TrimSpace(*req.SourceType) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "source_type cannot be empty"})
+			return
+		}
+		source.SourceType = *req.SourceType
+	}
+	if req.UpstreamURL != nil {
+		source.UpstreamURL = normalizeOptionalString(req.UpstreamURL)
+	}
+	if req.UpstreamToken != nil {
+		source.UpstreamToken = normalizeOptionalString(req.UpstreamToken)
+	}
+	if req.Config != nil {
+		source.Config = *req.Config
+	}
+	if req.Priority != nil {
+		source.Priority = *req.Priority
+	}
+	if req.AutoRental != nil {
+		source.AutoRental = *req.AutoRental
+	}
+	if req.Status != nil {
+		source.Status = *req.Status
+	}
+	if req.Remark != nil {
+		source.Remark = normalizeOptionalString(req.Remark)
 	}
 
 	if err := db.Save(&source).Error; err != nil {
@@ -185,4 +211,15 @@ func DeleteSource(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+func normalizeOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }

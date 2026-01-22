@@ -4,10 +4,16 @@ import (
 	"codex-relay/internal/entity"
 	"codex-relay/internal/mysql"
 	"codex-relay/internal/repository"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ListAccounts 获取账号列表
@@ -23,44 +29,10 @@ func ListAccounts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	// 转换为前端需要的格式
-	type AccountResponse struct {
-		ID           uint64  `json:"id"`
-		UserID       uint64  `json:"user_id"`
-		ProductID    int64   `json:"product_id"`
-		AccountEmail string  `json:"account_email"`
-		Token        string  `json:"token"`
-		Balance      float64 `json:"balance"`
-		Status       string  `json:"status"`
-		CreatedAt    string  `json:"created_at"`
-		UpdatedAt    string  `json:"updated_at"`
+	response := make([]accountResponse, 0, len(accounts))
+	for i := range accounts {
+		response = append(response, newAccountResponse(&accounts[i]))
 	}
-
-	var response []AccountResponse
-	response = make([]AccountResponse, 0)
-	for _, a := range accounts {
-		token := ""
-		if a.Token != nil {
-			token = *a.Token
-		}
-		userID := uint64(0)
-		if a.UserID != nil {
-			userID = *a.UserID
-		}
-		response = append(response, AccountResponse{
-			ID:           a.ID,
-			UserID:       userID,
-			ProductID:    a.ProductID,
-			AccountEmail: a.AccountEmail,
-			Token:        token,
-			Balance:      a.Balance,
-			Status:       a.Status,
-			CreatedAt:    a.CreateTime.Format("2006-01-02 15:04:05"),
-			UpdatedAt:    a.UpdateTime.Format("2006-01-02 15:04:05"),
-		})
-	}
-
 	c.JSON(http.StatusOK, response)
 }
 
@@ -84,36 +56,21 @@ func GetAccountByToken(c *gin.Context) {
 		return
 	}
 
-	tokenStr := ""
-	if account.Token != nil {
-		tokenStr = *account.Token
-	}
-	userID := uint64(0)
-	if account.UserID != nil {
-		userID = *account.UserID
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"id":            account.ID,
-		"user_id":       userID,
-		"product_id":    account.ProductID,
-		"account_email": account.AccountEmail,
-		"token":         tokenStr,
-		"balance":       account.Balance,
-		"status":        account.Status,
-		"created_at":    account.CreateTime.Format("2006-01-02 15:04:05"),
-		"updated_at":    account.UpdateTime.Format("2006-01-02 15:04:05"),
-	})
+	c.JSON(http.StatusOK, newAccountResponse(account))
 }
 
 // CreateAccount 创建账号
 func CreateAccount(c *gin.Context) {
 	var req struct {
-		AccountEmail string  `json:"account_email" binding:"required"`
-		Token        string  `json:"token" binding:"required"`
-		Balance      float64 `json:"balance"`
-		Status       string  `json:"status"`
-		ProductID    int64   `json:"product_id"`
+		AccountEmail    string     `json:"account_email"`
+		AccountPassword *string    `json:"account_password"`
+		Token           *string    `json:"token"`
+		Balance         *float64   `json:"balance"`
+		Status          string     `json:"status" binding:"required"`
+		ProductID       int64      `json:"product_id" binding:"required"`
+		UserID          *uint64    `json:"user_id"`
+		ExpireDate      *time.Time `json:"expire_date"`
+		Remark          *string    `json:"remark"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -121,23 +78,63 @@ func CreateAccount(c *gin.Context) {
 		return
 	}
 
-	status := "active"
-	if req.Status != "" {
-		status = req.Status
+	if strings.TrimSpace(req.Status) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status cannot be empty"})
+		return
 	}
 
-	productID := int64(1)
-	if req.ProductID > 0 {
-		productID = req.ProductID
+	db := mysql.DB()
+	if db == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
+		return
+	}
+
+	product, err := getProductByID(db, req.ProductID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "product not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	sourceID, err := getDefaultSourceID(db, product.ID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "product has no account sources"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	token := normalizeOptionalString(req.Token)
+	if token == nil {
+		generatedToken, err := buildDefaultToken(product.ProductCode)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		token = &generatedToken
+	}
+
+	balance := product.DefaultBalance
+	if req.Balance != nil {
+		balance = *req.Balance
 	}
 
 	account := &entity.Account{
-		AccountEmail: req.AccountEmail,
-		Token:        &req.Token,
-		Balance:      req.Balance,
-		Status:       status,
-		ProductID:    productID,
-		SourceID:     1,
+		AccountEmail:    strings.TrimSpace(req.AccountEmail),
+		AccountPassword: normalizeOptionalString(req.AccountPassword),
+		Token:           token,
+		Balance:         balance,
+		Status:          strings.TrimSpace(req.Status),
+		ProductID:       req.ProductID,
+		SourceID:        sourceID,
+		UserID:          req.UserID,
+		ExpireDate:      req.ExpireDate,
+		Remark:          normalizeOptionalString(req.Remark),
 	}
 
 	repo := repository.NewAccountRepository()
@@ -153,11 +150,15 @@ func CreateAccount(c *gin.Context) {
 func BatchCreateAccounts(c *gin.Context) {
 	var req struct {
 		Accounts []struct {
-			AccountEmail string  `json:"account_email" binding:"required"`
-			Token        string  `json:"token" binding:"required"`
-			Balance      float64 `json:"balance"`
-			Status       string  `json:"status"`
-			ProductID    int64   `json:"product_id"`
+			AccountEmail    string     `json:"account_email"`
+			AccountPassword *string    `json:"account_password"`
+			Token           *string    `json:"token"`
+			Balance         *float64   `json:"balance"`
+			Status          string     `json:"status" binding:"required"`
+			ProductID       int64      `json:"product_id" binding:"required"`
+			UserID          *uint64    `json:"user_id"`
+			ExpireDate      *time.Time `json:"expire_date"`
+			Remark          *string    `json:"remark"`
 		} `json:"accounts" binding:"required"`
 	}
 
@@ -166,28 +167,72 @@ func BatchCreateAccounts(c *gin.Context) {
 		return
 	}
 
+	db := mysql.DB()
+	if db == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
+		return
+	}
+
 	repo := repository.NewAccountRepository()
 	success := 0
 	failed := 0
+	productCache := make(map[int64]*entity.Product)
+	sourceCache := make(map[int64]int64)
 
 	for _, a := range req.Accounts {
-		status := "active"
-		if a.Status != "" {
-			status = a.Status
+		if strings.TrimSpace(a.Status) == "" {
+			failed++
+			continue
 		}
 
-		productID := int64(1)
-		if a.ProductID > 0 {
-			productID = a.ProductID
+		product, ok := productCache[a.ProductID]
+		if !ok {
+			fetched, err := getProductByID(db, a.ProductID)
+			if err != nil {
+				failed++
+				continue
+			}
+			product = fetched
+			productCache[a.ProductID] = product
+		}
+
+		sourceID, ok := sourceCache[a.ProductID]
+		if !ok {
+			fetchedSourceID, err := getDefaultSourceID(db, a.ProductID)
+			if err != nil {
+				failed++
+				continue
+			}
+			sourceID = fetchedSourceID
+			sourceCache[a.ProductID] = sourceID
+		}
+
+		token := normalizeOptionalString(a.Token)
+		if token == nil {
+			generatedToken, err := buildDefaultToken(product.ProductCode)
+			if err != nil {
+				failed++
+				continue
+			}
+			token = &generatedToken
+		}
+
+		balance := product.DefaultBalance
+		if a.Balance != nil {
+			balance = *a.Balance
 		}
 
 		account := &entity.Account{
-			AccountEmail: a.AccountEmail,
-			Token:        &a.Token,
-			Balance:      a.Balance,
-			Status:       status,
-			ProductID:    productID,
-			SourceID:     1,
+			AccountEmail:    strings.TrimSpace(a.AccountEmail),
+			AccountPassword: normalizeOptionalString(a.AccountPassword),
+			Token:           token,
+			Balance:         balance,
+			Status:          strings.TrimSpace(a.Status),
+			ProductID:       a.ProductID,
+			SourceID:        sourceID,
+			UserID:          a.UserID,
+			ExpireDate:      a.ExpireDate,
+			Remark:          normalizeOptionalString(a.Remark),
 		}
 
 		if err := repo.Create(account); err != nil {
@@ -244,4 +289,68 @@ func DeleteAccount(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+type accountResponse struct {
+	ID               uint64     `json:"id"`
+	AccountEmail     string     `json:"account_email"`
+	Token            *string    `json:"token"`
+	ProductID        int64      `json:"product_id"`
+	SourceID         int64      `json:"source_id"`
+	UserID           *uint64    `json:"user_id"`
+	Status           string     `json:"status"`
+	ExpireDate       *time.Time `json:"expire_date"`
+	Balance          float64    `json:"balance"`
+	LastRechargeTime *time.Time `json:"last_recharge_time"`
+	Remark           *string    `json:"remark"`
+	Version          int        `json:"version"`
+	CreateTime       time.Time  `json:"create_time"`
+	UpdateTime       time.Time  `json:"update_time"`
+}
+
+func newAccountResponse(account *entity.Account) accountResponse {
+	return accountResponse{
+		ID:               account.ID,
+		AccountEmail:     account.AccountEmail,
+		Token:            account.Token,
+		ProductID:        account.ProductID,
+		SourceID:         account.SourceID,
+		UserID:           account.UserID,
+		Status:           account.Status,
+		ExpireDate:       account.ExpireDate,
+		Balance:          account.Balance,
+		LastRechargeTime: account.LastRechargeTime,
+		Remark:           account.Remark,
+		Version:          account.Version,
+		CreateTime:       account.CreateTime,
+		UpdateTime:       account.UpdateTime,
+	}
+}
+
+func buildDefaultToken(prefix string) (string, error) {
+	trimmed := strings.TrimRight(strings.TrimSpace(prefix), "-")
+	if trimmed == "" {
+		return "", errors.New("product_code is empty")
+	}
+	randomBytes := make([]byte, 16)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", err
+	}
+	return trimmed + "-" + hex.EncodeToString(randomBytes), nil
+}
+
+func getProductByID(db *gorm.DB, productID int64) (*entity.Product, error) {
+	var product entity.Product
+	if err := db.First(&product, productID).Error; err != nil {
+		return nil, err
+	}
+	return &product, nil
+}
+
+func getDefaultSourceID(db *gorm.DB, productID int64) (int64, error) {
+	var mapping entity.AccountSourceProcut
+	if err := db.Where("product_id = ?", productID).Order("weight desc, id asc").First(&mapping).Error; err != nil {
+		return 0, err
+	}
+	return mapping.SourceID, nil
 }

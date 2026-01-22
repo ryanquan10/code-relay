@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 )
 
 // TokenConvertService 负责将客户端 token 转换为上流服务器地址和上流 token
@@ -63,30 +64,48 @@ func (s *TokenConvertService) ConvertToken(customerToken string) (*UpstreamConfi
 		return nil, fmt.Errorf("account_source not found")
 	}
 
-	// 3. 解析 Config JSON 获取 APIURL 和 APIKey
-	var config entity.AccountSourceConfig
-	if len(accountSource.Config) > 0 {
-		if err := json.Unmarshal(accountSource.Config, &config); err != nil {
-			log.Printf("[TokenConvert] 解析 AccountSource Config 失败: %v", err)
-			return nil, fmt.Errorf("failed to parse account_source config: %w", err)
+	upstreamURL := ""
+	upstreamToken := ""
+	if accountSource.UpstreamURL != nil {
+		upstreamURL = strings.TrimSpace(*accountSource.UpstreamURL)
+	}
+	if accountSource.UpstreamToken != nil {
+		upstreamToken = strings.TrimSpace(*accountSource.UpstreamToken)
+	}
+
+	// 3. 解析 Config JSON 获取 APIURL 和 APIKey (作为兼容回退)
+	if upstreamURL == "" || upstreamToken == "" {
+		var config entity.AccountSourceConfig
+		if len(accountSource.Config) > 0 {
+			if err := json.Unmarshal(accountSource.Config, &config); err != nil {
+				log.Printf("[TokenConvert] 解析 AccountSource Config 失败: %v", err)
+				return nil, fmt.Errorf("failed to parse account_source config: %w", err)
+			}
+		}
+
+		if upstreamURL == "" && config.APIURL != nil {
+			upstreamURL = strings.TrimSpace(*config.APIURL)
+		}
+		if upstreamToken == "" && config.APIKey != nil {
+			upstreamToken = strings.TrimSpace(*config.APIKey)
 		}
 	}
 
-	// 检查 api_url 是否存在
-	if config.APIURL == nil || *config.APIURL == "" {
-		log.Printf("[TokenConvert] AccountSource 的 APIURL 为空 (ID=%d)", accountSource.ID)
-		return nil, fmt.Errorf("api_url is empty in account_source config")
+	// 检查 upstream_url 是否存在
+	if upstreamURL == "" {
+		log.Printf("[TokenConvert] AccountSource 的 UpstreamURL 为空 (ID=%d)", accountSource.ID)
+		return nil, fmt.Errorf("upstream_url is empty for account_source")
 	}
 
-	// 检查 api_key 是否存在
-	if config.APIKey == nil || *config.APIKey == "" {
-		log.Printf("[TokenConvert] AccountSource 的 APIKey 为空 (ID=%d)", accountSource.ID)
-		return nil, fmt.Errorf("api_key is empty in account_source config")
+	// 检查 upstream_token 是否存在
+	if upstreamToken == "" {
+		log.Printf("[TokenConvert] AccountSource 的 UpstreamToken 为空 (ID=%d)", accountSource.ID)
+		return nil, fmt.Errorf("upstream_token is empty for account_source")
 	}
 
 	upstreamConfig := &UpstreamConfig{
-		UpstreamURL:   *config.APIURL,
-		UpstreamToken: *config.APIKey,
+		UpstreamURL:   upstreamURL,
+		UpstreamToken: upstreamToken,
 	}
 
 	log.Printf("[TokenConvert] 转换成功: CustomerToken=%s -> UpstreamURL=%s, UpstreamToken=%s",

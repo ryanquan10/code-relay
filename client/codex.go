@@ -21,6 +21,9 @@ import (
 
 type codexRelay struct{
 	tokenConvertService *service.TokenConvertService
+	proxy               *httputil.ReverseProxy
+	upstreamURL         *url.URL
+	mu                  sync.RWMutex
 }
 
 func NewCodexRelay() *codexRelay {
@@ -329,3 +332,136 @@ func (c *codexRelay) Relay() {
 }
 
 var Codex = NewCodexRelay()
+
+// GetAppType 返回客户端类型
+func (c *codexRelay) GetAppType() string {
+	return "codex"
+}
+
+func init() {
+	// 自动注册到全局注册表
+	Register(Codex)
+}
+
+// HandleRequest 处理HTTP请求并转发到上游
+func (c *codexRelay) HandleRequest(w http.ResponseWriter, r *http.Request) {
+	// 默认上游地址
+	upstreamURLStr := "https://code.newcli.com"
+
+	// 解析上游 URL
+	upstreamURL, err := url.Parse(upstreamURLStr)
+	if err != nil {
+		log.Printf("[Codex] 无法解析上游地址 %s: %v", upstreamURLStr, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// 创建反向代理
+	proxy := httputil.NewSingleHostReverseProxy(upstreamURL)
+
+	// 配置传输层
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: false,
+		},
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 0,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	// 自动检测系统代理
+	transport.Proxy = http.ProxyFromEnvironment
+	proxy.Transport = transport
+
+	// 自定义请求修改
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		clientIP := req.RemoteAddr
+
+		// 调用原始的 Director
+		originalDirector(req)
+
+		// 设置正确的 Host 头
+		req.Host = upstreamURL.Host
+
+		// 获取客户端 token
+		customerToken := req.Header.Get("Authorization")
+		if strings.HasPrefix(customerToken, "Bearer ") {
+			customerToken = strings.TrimPrefix(customerToken, "Bearer ")
+		}
+
+		// 将 customerToken 存入 context
+		ctx := context.WithValue(req.Context(), customerTokenContextKey, customerToken)
+		*req = *req.WithContext(ctx)
+
+		// 使用 token_convert_service 转换 token 和上流地址
+		upstreamConfig, err := c.tokenConvertService.ConvertToken(customerToken)
+		if err != nil {
+			log.Printf("[Codex TokenConvert] 转换失败: %v, 使用默认配置", err)
+			// 如果转换失败，使用默认的 token (兜底方案)
+			req.Header.Set("Authorization", "Bearer sk-ant-oat01-3pOZJw3eh_LRataPfuRKvSS2_7I99bUKdX3AfbRfPkoHx3RbzoYSEaAa2NC3pdyERGr-zZLyE5vSRA5UeVNPH9gopj2NYAA")
+		} else {
+			// 使用转换后的上流 token
+			req.Header.Set("Authorization", "Bearer "+upstreamConfig.UpstreamToken)
+			log.Printf("[Codex TokenConvert] 使用上流 URL: %s", upstreamConfig.UpstreamURL)
+		}
+
+		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
+
+		log.Printf("[Codex] 转发请求: %s %s -> %s://%s%s [用户: %s]",
+			req.Method, clientIP, upstreamURL.Scheme, upstreamURL.Host, req.URL.Path, maskKey(customerToken))
+
+		// 统计请求流量 (上行)
+		if req.Body != nil && req.Body != http.NoBody && customerToken != "" {
+			counter := getOrCreateCounter(customerToken)
+			req.Body = service.NewCountingReadCloser(req.Body, counter)
+		}
+	}
+
+	// 自定义响应修改
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		// 从 context 获取 customerToken
+		customerToken := ""
+		if key := resp.Request.Context().Value(customerTokenContextKey); key != nil {
+			customerToken = key.(string)
+		}
+
+		// 统计响应流量 (下行)
+		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
+			counter := getOrCreateCounter(customerToken)
+			resp.Body = service.NewCountingReadCloser(resp.Body, counter)
+		}
+
+		log.Printf("[Codex] 收到响应: %s %d %s [用户: %s]",
+			resp.Request.URL.Path, resp.StatusCode, resp.Status, maskKey(customerToken))
+
+		return nil
+	}
+
+	// 自定义错误处理
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		log.Printf("[Codex] 代理错误 [%s %s]: %v", r.Method, r.URL.Path, err)
+
+		// 即使出错也尝试刷新计数器
+		if key := r.Context().Value(customerTokenContextKey); key != nil {
+			customerToken := key.(string)
+			if counter := getOrCreateCounter(customerToken); counter != nil {
+				if flushErr := counter.Flush(); flushErr != nil {
+					log.Printf("[Codex 警告] 刷新计数器失败: %v", flushErr)
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprintf(w, `{"error": "代理转发失败", "details": "%v", "upstream": "%s"}`,
+			err, upstreamURLStr)
+	}
+
+	// 执行代理
+	proxy.ServeHTTP(w, r)
+}

@@ -1,13 +1,27 @@
 package controller
 
 import (
-	"codex-relay/internal/entity"
-	"codex-relay/internal/mysql"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+
+	"codex-relay/internal/entity"
+	"codex-relay/internal/mysql"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+type productSourcePayload struct {
+	SourceID int64 `json:"source_id"`
+	Weight   int   `json:"weight"`
+}
+
+type productResponse struct {
+	entity.Product
+	Sources []productSourcePayload `json:"sources"`
+}
 
 // ListProducts 获取产品列表
 func ListProducts(c *gin.Context) {
@@ -23,66 +37,36 @@ func ListProducts(c *gin.Context) {
 		return
 	}
 
-	// 转换为前端需要的格式
-	type ProductResponse struct {
-		ID               int64    `json:"id"`
-		ProductCode      string   `json:"product_code"`
-		ProductName      string   `json:"product_name"`
-		AccountType      string   `json:"account_type"`
-		Category         string   `json:"category"`
-		Price            float64  `json:"price"`
-		OriginalPrice    *float64 `json:"original_price"`
-		ValidityDays     int      `json:"validity_days"`
-		SharedLimit      int      `json:"shared_limit"`
-		SalesCount       int      `json:"sales_count"`
-		AutoDelivery     bool     `json:"auto_delivery"`
-		SortOrder        int      `json:"sort_order"`
-		Status           string   `json:"status"`
-		Description      string   `json:"description"`
-		CreatedAt        string   `json:"created_at"`
-		UpdatedAt        string   `json:"updated_at"`
-		SourceIDs        []int64  `json:"source_ids"`
+	if len(products) == 0 {
+		c.JSON(http.StatusOK, []productResponse{})
+		return
 	}
 
-	var response []ProductResponse
-	response = make([]ProductResponse, 0)
-	for _, p := range products {
-		status := "inactive"
-		if p.Status == 1 {
-			status = "active"
-		}
+	productIDs := make([]int64, 0, len(products))
+	for _, product := range products {
+		productIDs = append(productIDs, product.ID)
+	}
 
-		category := ""
-		if p.Category != nil {
-			category = *p.Category
-		}
+	var mappings []entity.AccountSourceProcut
+	if err := db.Where("product_id IN ?", productIDs).Find(&mappings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-		description := ""
-		if p.Description != nil {
-			description = *p.Description
-		}
+	sourceMap := make(map[int64][]productSourcePayload, len(products))
+	for _, mapping := range mappings {
+		sourceMap[mapping.ProductID] = append(sourceMap[mapping.ProductID], productSourcePayload{
+			SourceID: mapping.SourceID,
+			Weight:   mapping.Weight,
+		})
+	}
 
-		// 新表结构：Product 直接包含 SourceID，返回单个 SourceID
-		sourceIDs := []int64{p.SourceID}
-
-		response = append(response, ProductResponse{
-			ID:            p.ID,
-			ProductCode:   p.ProductCode,
-			ProductName:   p.ProductName,
-			AccountType:   p.AccountType,
-			Category:      category,
-			Price:         p.Price,
-			OriginalPrice: p.OriginalPrice,
-			ValidityDays:  p.ValidityDays,
-			SharedLimit:   p.SharedLimit,
-			SalesCount:    p.SalesCount,
-			AutoDelivery:  p.AutoDelivery,
-			SortOrder:     p.SortOrder,
-			Status:        status,
-			Description:   description,
-			CreatedAt:     p.CreateTime.Format("2006-01-02 15:04:05"),
-			UpdatedAt:     p.UpdateTime.Format("2006-01-02 15:04:05"),
-			SourceIDs:     sourceIDs,
+	response := make([]productResponse, 0, len(products))
+	for i := range products {
+		product := products[i]
+		response = append(response, productResponse{
+			Product: product,
+			Sources: sourceMap[product.ID],
 		})
 	}
 
@@ -98,19 +82,30 @@ func CreateProduct(c *gin.Context) {
 	}
 
 	var req struct {
-		ProductCode   string   `json:"product_code" binding:"required"`
-		ProductName   string   `json:"product_name" binding:"required"`
-		AccountType   string   `json:"account_type" binding:"required"`
-		Category      string   `json:"category"`
-		Price         float64  `json:"price" binding:"required"`
-		OriginalPrice *float64 `json:"original_price"`
-		ValidityDays  int      `json:"validity_days"`
-		SharedLimit   int      `json:"shared_limit"`
-		AutoDelivery  bool     `json:"auto_delivery"`
-		SortOrder     int      `json:"sort_order"`
-		Status        string   `json:"status"`
-		Description   string   `json:"description"`
-		SourceIDs     []int64  `json:"source_ids"`
+		ProductCode      string   `json:"product_code" binding:"required"`
+		ProductName      string   `json:"product_name" binding:"required"`
+		AccountType      *string  `json:"account_type"`
+		Category         *string  `json:"category"`
+		Icon             *string  `json:"icon"`
+		ImageURL         *string  `json:"image_url"`
+		DownStreamURL    *string  `json:"down_stream_url"`
+		Description      *string  `json:"description"`
+		Price            *float64 `json:"price" binding:"required"`
+		OriginalPrice    *float64 `json:"original_price"`
+		SalesCount       *int     `json:"sales_count"`
+		ContactInfo      *string  `json:"contact_info"`
+		UsageInstruction *string  `json:"usage_instruction"`
+		ValidityDays     *int     `json:"validity_days"`
+		SharedLimit      *int     `json:"shared_limit"`
+		Sources          []productSourcePayload `json:"sources" binding:"required"`
+		CostPrice        *float64 `json:"cost_price"`
+		DefaultBalance   *float64 `json:"default_balance"`
+		OriginalBalance  *float64 `json:"original_balance"`
+		Stock            *int     `json:"stock"`
+		AutoDelivery     *bool    `json:"auto_delivery"`
+		SortOrder        *int     `json:"sort_order"`
+		Status           *int     `json:"status"`
+		Version          *int     `json:"version"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -118,45 +113,120 @@ func CreateProduct(c *gin.Context) {
 		return
 	}
 
-	status := 0
-	if req.Status == "active" {
-		status = 1
+	productCode := strings.TrimSpace(req.ProductCode)
+	if productCode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "product_code cannot be empty"})
+		return
+	}
+	productName := strings.TrimSpace(req.ProductName)
+	if productName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "product_name cannot be empty"})
+		return
+	}
+	if err := validateProductSources(req.Sources); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
-	category := &req.Category
-	if req.Category == "" {
-		category = nil
+	accountType := ""
+	if req.AccountType != nil {
+		accountType = strings.TrimSpace(*req.AccountType)
 	}
-
-	description := &req.Description
-	if req.Description == "" {
-		description = nil
+	if req.Price == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "price required"})
+		return
 	}
-
-	// 新表结构：Product 直接包含 SourceID（取第一个）
-	var sourceID int64 = 0
-	if len(req.SourceIDs) > 0 {
-		sourceID = req.SourceIDs[0]
+	price := *req.Price
+	validityDays := 9999
+	if req.ValidityDays != nil {
+		validityDays = *req.ValidityDays
+	}
+	sharedLimit := 0
+	if req.SharedLimit != nil {
+		sharedLimit = *req.SharedLimit
+	}
+	salesCount := 0
+	if req.SalesCount != nil {
+		salesCount = *req.SalesCount
+	}
+	costPrice := 0.0
+	if req.CostPrice != nil {
+		costPrice = *req.CostPrice
+	}
+	defaultBalance := 0.0
+	if req.DefaultBalance != nil {
+		defaultBalance = *req.DefaultBalance
+	}
+	originalBalance := 0.0
+	if req.OriginalBalance != nil {
+		originalBalance = *req.OriginalBalance
+	}
+	stock := 0
+	if req.Stock != nil {
+		stock = *req.Stock
+	}
+	autoDelivery := false
+	if req.AutoDelivery != nil {
+		autoDelivery = *req.AutoDelivery
+	}
+	sortOrder := 0
+	if req.SortOrder != nil {
+		sortOrder = *req.SortOrder
+	}
+	status := 1
+	if req.Status != nil {
+		status = *req.Status
+	}
+	version := 0
+	if req.Version != nil {
+		version = *req.Version
 	}
 
 	product := entity.Product{
-		ProductCode:   req.ProductCode,
-		ProductName:   req.ProductName,
-		AccountType:   req.AccountType,
-		Category:      category,
-		Price:         req.Price,
-		OriginalPrice: req.OriginalPrice,
-		ValidityDays:  req.ValidityDays,
-		SharedLimit:   req.SharedLimit,
-		SalesCount:    0,
-		AutoDelivery:  req.AutoDelivery,
-		SortOrder:     req.SortOrder,
-		Status:        status,
-		Description:   description,
-		SourceID:      sourceID,
+		ProductCode:      productCode,
+		ProductName:      productName,
+		AccountType:      accountType,
+		Category:         normalizeOptionalString(req.Category),
+		Icon:             normalizeOptionalString(req.Icon),
+		ImageURL:         normalizeOptionalString(req.ImageURL),
+		DownStreamURL:    normalizeOptionalString(req.DownStreamURL),
+		Description:      normalizeOptionalString(req.Description),
+		Price:            price,
+		OriginalPrice:    req.OriginalPrice,
+		SalesCount:       salesCount,
+		ContactInfo:      normalizeOptionalString(req.ContactInfo),
+		UsageInstruction: normalizeOptionalString(req.UsageInstruction),
+		ValidityDays:     validityDays,
+		SharedLimit:      sharedLimit,
+		CostPrice:        costPrice,
+		DefaultBalance:   defaultBalance,
+		OriginalBalance:  originalBalance,
+		Stock:            stock,
+		AutoDelivery:     autoDelivery,
+		SortOrder:        sortOrder,
+		Status:           status,
+		Version:          version,
 	}
 
-	if err := db.Create(&product).Error; err != nil {
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&product).Error; err != nil {
+			return err
+		}
+
+		mappings := make([]entity.AccountSourceProcut, 0, len(req.Sources))
+		for _, source := range req.Sources {
+			mappings = append(mappings, entity.AccountSourceProcut{
+				ProductID: product.ID,
+				SourceID:  source.SourceID,
+				Weight:    source.Weight,
+			})
+		}
+
+		if err := tx.Create(&mappings).Error; err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -179,19 +249,30 @@ func UpdateProduct(c *gin.Context) {
 	}
 
 	var req struct {
-		ProductCode   string   `json:"product_code"`
-		ProductName   string   `json:"product_name"`
-		AccountType   string   `json:"account_type"`
-		Category      string   `json:"category"`
-		Price         float64  `json:"price"`
-		OriginalPrice *float64 `json:"original_price"`
-		ValidityDays  int      `json:"validity_days"`
-		SharedLimit   int      `json:"shared_limit"`
-		AutoDelivery  bool     `json:"auto_delivery"`
-		SortOrder     int      `json:"sort_order"`
-		Status        string   `json:"status"`
-		Description   string   `json:"description"`
-		SourceIDs     []int64  `json:"source_ids"`
+		ProductCode      *string  `json:"product_code"`
+		ProductName      *string  `json:"product_name"`
+		AccountType      *string  `json:"account_type"`
+		Category         *string  `json:"category"`
+		Icon             *string  `json:"icon"`
+		ImageURL         *string  `json:"image_url"`
+		DownStreamURL    *string  `json:"down_stream_url"`
+		Description      *string  `json:"description"`
+		Price            *float64 `json:"price"`
+		OriginalPrice    *float64 `json:"original_price"`
+		SalesCount       *int     `json:"sales_count"`
+		ContactInfo      *string  `json:"contact_info"`
+		UsageInstruction *string  `json:"usage_instruction"`
+		ValidityDays     *int     `json:"validity_days"`
+		SharedLimit      *int     `json:"shared_limit"`
+		Sources          *[]productSourcePayload `json:"sources"`
+		CostPrice        *float64 `json:"cost_price"`
+		DefaultBalance   *float64 `json:"default_balance"`
+		OriginalBalance  *float64 `json:"original_balance"`
+		Stock            *int     `json:"stock"`
+		AutoDelivery     *bool    `json:"auto_delivery"`
+		SortOrder        *int     `json:"sort_order"`
+		Status           *int     `json:"status"`
+		Version          *int     `json:"version"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -206,49 +287,117 @@ func UpdateProduct(c *gin.Context) {
 	}
 
 	// 更新产品字段
-	if req.ProductCode != "" {
-		product.ProductCode = req.ProductCode
+	if req.ProductCode != nil {
+		productCode := strings.TrimSpace(*req.ProductCode)
+		if productCode == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "product_code cannot be empty"})
+			return
+		}
+		product.ProductCode = productCode
 	}
-	if req.ProductName != "" {
-		product.ProductName = req.ProductName
+	if req.ProductName != nil {
+		productName := strings.TrimSpace(*req.ProductName)
+		if productName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "product_name cannot be empty"})
+			return
+		}
+		product.ProductName = productName
 	}
-	if req.AccountType != "" {
-		product.AccountType = req.AccountType
+	if req.AccountType != nil {
+		product.AccountType = strings.TrimSpace(*req.AccountType)
 	}
-	if req.Category != "" {
-		product.Category = &req.Category
+	if req.Category != nil {
+		product.Category = normalizeOptionalString(req.Category)
 	}
-	if req.Price > 0 {
-		product.Price = req.Price
+	if req.Icon != nil {
+		product.Icon = normalizeOptionalString(req.Icon)
 	}
-	product.OriginalPrice = req.OriginalPrice
-	if req.ValidityDays > 0 {
-		product.ValidityDays = req.ValidityDays
+	if req.ImageURL != nil {
+		product.ImageURL = normalizeOptionalString(req.ImageURL)
 	}
-	if req.SharedLimit >= 0 {
-		product.SharedLimit = req.SharedLimit
+	if req.DownStreamURL != nil {
+		product.DownStreamURL = normalizeOptionalString(req.DownStreamURL)
 	}
-	product.AutoDelivery = req.AutoDelivery
-	if req.SortOrder >= 0 {
-		product.SortOrder = req.SortOrder
+	if req.Price != nil {
+		product.Price = *req.Price
 	}
-	if req.Status != "" {
-		if req.Status == "active" {
-			product.Status = 1
-		} else {
-			product.Status = 0
+	if req.OriginalPrice != nil {
+		product.OriginalPrice = req.OriginalPrice
+	}
+	if req.SalesCount != nil {
+		product.SalesCount = *req.SalesCount
+	}
+	if req.ContactInfo != nil {
+		product.ContactInfo = normalizeOptionalString(req.ContactInfo)
+	}
+	if req.UsageInstruction != nil {
+		product.UsageInstruction = normalizeOptionalString(req.UsageInstruction)
+	}
+	if req.ValidityDays != nil {
+		product.ValidityDays = *req.ValidityDays
+	}
+	if req.SharedLimit != nil {
+		product.SharedLimit = *req.SharedLimit
+	}
+	if req.CostPrice != nil {
+		product.CostPrice = *req.CostPrice
+	}
+	if req.DefaultBalance != nil {
+		product.DefaultBalance = *req.DefaultBalance
+	}
+	if req.OriginalBalance != nil {
+		product.OriginalBalance = *req.OriginalBalance
+	}
+	if req.Stock != nil {
+		product.Stock = *req.Stock
+	}
+	if req.AutoDelivery != nil {
+		product.AutoDelivery = *req.AutoDelivery
+	}
+	if req.SortOrder != nil {
+		product.SortOrder = *req.SortOrder
+	}
+	if req.Status != nil {
+		product.Status = *req.Status
+	}
+	if req.Description != nil {
+		product.Description = normalizeOptionalString(req.Description)
+	}
+	if req.Version != nil {
+		product.Version = *req.Version
+	}
+
+	if req.Sources != nil {
+		if err := validateProductSources(*req.Sources); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
 	}
-	if req.Description != "" {
-		product.Description = &req.Description
-	}
 
-	// 更新 SourceID（取第一个）
-	if len(req.SourceIDs) > 0 {
-		product.SourceID = req.SourceIDs[0]
-	}
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&product).Error; err != nil {
+			return err
+		}
 
-	if err := db.Save(&product).Error; err != nil {
+		if req.Sources != nil {
+			if err := tx.Where("product_id = ?", product.ID).Delete(&entity.AccountSourceProcut{}).Error; err != nil {
+				return err
+			}
+			mappings := make([]entity.AccountSourceProcut, 0, len(*req.Sources))
+			for _, source := range *req.Sources {
+				mappings = append(mappings, entity.AccountSourceProcut{
+					ProductID: product.ID,
+					SourceID:  source.SourceID,
+					Weight:    source.Weight,
+				})
+			}
+			if err := tx.Create(&mappings).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -270,11 +419,38 @@ func DeleteProduct(c *gin.Context) {
 		return
 	}
 
-	// 直接删除产品（新表结构无需删除关联）
-	if err := db.Delete(&entity.Product{}, id).Error; err != nil {
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("product_id = ?", id).Delete(&entity.AccountSourceProcut{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&entity.Product{}, id).Error; err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+func validateProductSources(sources []productSourcePayload) error {
+	if len(sources) == 0 {
+		return fmt.Errorf("sources required")
+	}
+	seen := make(map[int64]struct{}, len(sources))
+	for _, source := range sources {
+		if source.SourceID <= 0 {
+			return fmt.Errorf("source_id must be greater than 0")
+		}
+		if source.Weight <= 0 {
+			return fmt.Errorf("weight must be greater than 0")
+		}
+		if _, ok := seen[source.SourceID]; ok {
+			return fmt.Errorf("duplicate source_id %d", source.SourceID)
+		}
+		seen[source.SourceID] = struct{}{}
+	}
+	return nil
 }

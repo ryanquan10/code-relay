@@ -1,23 +1,107 @@
 import { useState, useEffect } from 'react';
-import { accountAPI, Account } from '../api/client';
+import { accountAPI, productAPI, Account, Product } from '../api/client';
 
 export default function AccountsTab() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showBatchModal, setShowBatchModal] = useState(false);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [searchToken, setSearchToken] = useState('');
   const [formData, setFormData] = useState({
     account_email: '',
     token: '',
     balance: 0,
     status: 'active',
-    product_id: 1,
+    product_id: 0,
+  });
+  const [batchDefaults, setBatchDefaults] = useState({
+    product_id: 0,
+    status: 'active',
   });
   const [batchText, setBatchText] = useState('');
+  const [batchCount, setBatchCount] = useState('1');
+
+  const generateRandomHex = (bytes: number) => {
+    const buffer = new Uint8Array(bytes);
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      crypto.getRandomValues(buffer);
+    } else {
+      for (let i = 0; i < buffer.length; i += 1) {
+        buffer[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    return Array.from(buffer)
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+  };
+
+  const normalizeTokenPrefix = (value: string) => value.trim().replace(/-+$/, '');
+
+  const buildDefaultToken = (productCode: string) => {
+    const prefix = normalizeTokenPrefix(productCode);
+    const random = generateRandomHex(16);
+    return prefix ? `${prefix}-${random}` : random;
+  };
+
+  const getSelectedProduct = (productId: number) =>
+    products.find((product) => product.id === productId) ?? products[0];
+
+  const buildDefaultFormData = (productId?: number) => {
+    const product = getSelectedProduct(productId ?? 0);
+    if (!product) {
+      return {
+        account_email: '',
+        token: '',
+        balance: 0,
+        status: 'active',
+        product_id: productId ?? 0,
+      };
+    }
+    return {
+      account_email: '',
+      token: buildDefaultToken(product.product_code),
+      balance: product.default_balance ?? 0,
+      status: 'active',
+      product_id: product.id,
+    };
+  };
+
+  const handleOpenModal = () => {
+    setFormData(buildDefaultFormData(formData.product_id));
+    setShowModal(true);
+  };
+
+  const handleProductChange = (productId: number) => {
+    const product = getSelectedProduct(productId);
+    if (!product) {
+      setFormData((prev) => ({ ...prev, product_id: productId }));
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      product_id: product.id,
+      token: buildDefaultToken(product.product_code),
+      balance: product.default_balance ?? 0,
+    }));
+  };
+
+  const handleRegenerateToken = () => {
+    const product = getSelectedProduct(formData.product_id);
+    if (!product) {
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      token: buildDefaultToken(product.product_code),
+    }));
+  };
 
   useEffect(() => {
     loadAccounts();
+    loadProducts();
   }, []);
 
   const loadAccounts = async () => {
@@ -30,6 +114,38 @@ export default function AccountsTab() {
       alert('加载账号失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadProducts = async () => {
+    try {
+      setProductsLoading(true);
+      const data = await productAPI.list();
+      setProducts(data);
+      if (data.length > 0) {
+        setFormData((prev) => {
+          const product = data.find((item) => item.id === prev.product_id) ?? data[0];
+          const nextToken = prev.token.trim() ? prev.token : buildDefaultToken(product.product_code);
+          const nextBalance = prev.balance === 0 ? (product.default_balance ?? 0) : prev.balance;
+          return {
+            ...prev,
+            product_id: product.id,
+            token: nextToken,
+            balance: nextBalance,
+          };
+        });
+        setBatchDefaults((prev) => {
+          const nextProductId = data.find((item) => item.id === prev.product_id)?.id ?? data[0].id;
+          return {
+            ...prev,
+            product_id: nextProductId,
+          };
+        });
+      }
+    } catch (error) {
+      console.error('加载产品失败:', error);
+    } finally {
+      setProductsLoading(false);
     }
   };
 
@@ -54,16 +170,32 @@ export default function AccountsTab() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await accountAPI.create(formData);
+      if (!formData.product_id) {
+        alert('请选择产品');
+        return;
+      }
+      const selectedProduct = getSelectedProduct(formData.product_id);
+      const normalizedToken = formData.token.trim() || (selectedProduct ? buildDefaultToken(selectedProduct.product_code) : '');
+      if (!normalizedToken) {
+        alert('Token 不能为空');
+        return;
+      }
+      const balance = Number.isFinite(formData.balance)
+        ? formData.balance
+        : (selectedProduct?.default_balance ?? 0);
+      if (!formData.status.trim()) {
+        alert('请选择状态');
+        return;
+      }
+      await accountAPI.create({
+        ...formData,
+        account_email: formData.account_email.trim(),
+        token: normalizedToken,
+        balance,
+      });
       alert('创建成功');
       setShowModal(false);
-      setFormData({
-        account_email: '',
-        token: '',
-        balance: 0,
-        status: 'active',
-        product_id: 1,
-      });
+      setFormData(buildDefaultFormData(formData.product_id));
       loadAccounts();
     } catch (error) {
       console.error('保存失败:', error);
@@ -76,6 +208,10 @@ export default function AccountsTab() {
       alert('请输入账号信息');
       return;
     }
+    if (!batchDefaults.product_id) {
+      alert('请选择批量导入的产品');
+      return;
+    }
 
     try {
       // 解析批量导入数据
@@ -86,12 +222,14 @@ export default function AccountsTab() {
         if (parts.length < 2) {
           throw new Error(`格式错误: ${line}`);
         }
+        const token = parts[1].trim();
+        const balance = parts[2] ? parseFloat(parts[2].trim()) : undefined;
         return {
           account_email: parts[0].trim(),
-          token: parts[1].trim(),
-          balance: parts[2] ? parseFloat(parts[2].trim()) : 0,
-          status: 'active',
-          product_id: 1,
+          token: token || undefined,
+          balance,
+          status: batchDefaults.status,
+          product_id: batchDefaults.product_id,
         };
       });
 
@@ -103,6 +241,34 @@ export default function AccountsTab() {
     } catch (error) {
       console.error('批量导入失败:', error);
       alert('批量导入失败: ' + (error as Error).message);
+    }
+  };
+
+  const handleBatchCreate = async () => {
+    const count = Number(batchCount);
+    if (!batchDefaults.product_id) {
+      alert('请选择批量新增的产品');
+      return;
+    }
+    if (!Number.isInteger(count) || count <= 0) {
+      alert('请输入有效的数量');
+      return;
+    }
+
+    try {
+      const accounts = Array.from({ length: count }, () => ({
+        status: batchDefaults.status,
+        product_id: batchDefaults.product_id,
+      }));
+      const result = await accountAPI.batchCreate(accounts);
+      alert(`批量新增完成！成功: ${result.success}, 失败: ${result.failed}`);
+      setShowBatchModal(false);
+      setShowGenerateModal(false);
+      setBatchText('');
+      loadAccounts();
+    } catch (error) {
+      console.error('批量新增失败:', error);
+      alert('批量新增失败');
     }
   };
 
@@ -173,7 +339,13 @@ export default function AccountsTab() {
             批量导入
           </button>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={() => setShowGenerateModal(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition"
+          >
+            批量生成
+          </button>
+          <button
+            onClick={handleOpenModal}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
           >
             + 添加账号
@@ -196,6 +368,12 @@ export default function AccountsTab() {
                   Token
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  产品ID
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  供应商ID
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   余额
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -212,12 +390,12 @@ export default function AccountsTab() {
             <tbody className="bg-white divide-y divide-gray-200">
               {accounts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                    暂无数据
-                  </td>
-                </tr>
-              ) : (
-                accounts.map((account) => (
+                <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                  暂无数据
+                </td>
+              </tr>
+            ) : (
+              accounts.map((account) => (
                   <tr key={account.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {account.id}
@@ -226,7 +404,15 @@ export default function AccountsTab() {
                       {account.account_email}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      <span className="font-mono text-xs">{account.token.substring(0, 20)}...</span>
+                      <span className="font-mono text-xs">
+                        {account.token ? `${account.token.substring(0, 20)}...` : '-'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {account.product_id}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {account.source_id}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       ${account.balance.toFixed(2)}
@@ -243,7 +429,7 @@ export default function AccountsTab() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(account.created_at).toLocaleString('zh-CN')}
+                      {new Date(account.create_time).toLocaleString('zh-CN')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                       <button
@@ -280,11 +466,20 @@ export default function AccountsTab() {
                   value={formData.account_email}
                   onChange={(e) => setFormData({ ...formData, account_email: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  required
                 />
+                <p className="text-xs text-gray-500 mt-1">可选</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Token</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Token</label>
+                  <button
+                    type="button"
+                    onClick={handleRegenerateToken}
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    重新生成
+                  </button>
+                </div>
                 <textarea
                   value={formData.token}
                   onChange={(e) => setFormData({ ...formData, token: e.target.value })}
@@ -292,9 +487,10 @@ export default function AccountsTab() {
                   rows={3}
                   required
                 />
+                <p className="text-xs text-gray-500 mt-1">默认使用产品前缀-随机32位</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">初始余额</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">默认余额</label>
                 <input
                   type="number"
                   step="0.01"
@@ -303,7 +499,42 @@ export default function AccountsTab() {
                     setFormData({ ...formData, balance: parseFloat(e.target.value) })
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
                 />
+                <p className="text-xs text-gray-500 mt-1">默认取产品默认余额</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">状态</label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                >
+                  <option value="active">正常</option>
+                  <option value="inactive">禁用</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
+                <select
+                  value={formData.product_id || ''}
+                  onChange={(e) => handleProductChange(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                >
+                  {productsLoading ? (
+                    <option value="" disabled>加载中...</option>
+                  ) : products.length === 0 ? (
+                    <option value="" disabled>暂无可用产品</option>
+                  ) : (
+                    products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.product_name} ({product.product_code})
+                      </option>
+                    ))
+                  )}
+                </select>
               </div>
               <div className="flex justify-end space-x-3 pt-4">
                 <button
@@ -325,16 +556,134 @@ export default function AccountsTab() {
         </div>
       )}
 
+      {/* 批量生成模态框 */}
+      {showGenerateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+            <h3 className="text-lg font-semibold mb-4">批量生成账号</h3>
+            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800">
+              选择产品与数量后自动生成 Token，邮箱留空，余额取产品默认余额。
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
+                <select
+                  value={batchDefaults.product_id || ''}
+                  onChange={(e) => setBatchDefaults({ ...batchDefaults, product_id: Number(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                >
+                  {productsLoading ? (
+                    <option value="" disabled>加载中...</option>
+                  ) : products.length === 0 ? (
+                    <option value="" disabled>暂无可用产品</option>
+                  ) : (
+                    products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.product_name} ({product.product_code})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">数量</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={batchCount}
+                  onChange={(e) => setBatchCount(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setShowGenerateModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBatchCreate}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition"
+              >
+                生成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 批量导入模态框 */}
       {showBatchModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
-            <h3 className="text-lg font-semibold mb-4">批量导入账号</h3>
+            <h3 className="text-lg font-semibold mb-4">批量导入/新增账号</h3>
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+              <p className="font-medium mb-1">快速批量新增</p>
+              <p>选择产品和数量即可自动生成 Token 与默认余额。</p>
+            </div>
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
               <p className="font-medium mb-2">格式说明:</p>
               <p>每行一个账号，使用逗号或竖线分隔</p>
-              <p className="font-mono mt-1">email,token,balance (balance 可选)</p>
+              <p className="font-mono mt-1">email,token,balance (email 可选)</p>
+              <p className="text-xs mt-1">token 为空自动生成，balance 为空取产品默认余额</p>
               <p className="font-mono mt-1">示例: user@example.com,sk-xxx123,10.00</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">默认产品</label>
+                <select
+                  value={batchDefaults.product_id || ''}
+                  onChange={(e) => setBatchDefaults({ ...batchDefaults, product_id: Number(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                >
+                  {productsLoading ? (
+                    <option value="" disabled>加载中...</option>
+                  ) : products.length === 0 ? (
+                    <option value="" disabled>暂无可用产品</option>
+                  ) : (
+                    products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.product_name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">默认状态</label>
+                <select
+                  value={batchDefaults.status}
+                  onChange={(e) => setBatchDefaults({ ...batchDefaults, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  required
+                >
+                  <option value="active">正常</option>
+                  <option value="inactive">禁用</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">数量</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={batchCount}
+                  onChange={(e) => setBatchCount(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={handleBatchCreate}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+              >
+                批量新增
+              </button>
             </div>
             <textarea
               value={batchText}
