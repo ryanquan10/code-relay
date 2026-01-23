@@ -11,7 +11,11 @@ const api = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   (config) => {
-    // 这里可以添加 token 等认证信息
+    // 从 localStorage 获取 token 并添加到请求头
+    const token = localStorage.getItem('admin_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {
@@ -26,6 +30,8 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
+      // 清除 token 和用户信息
+      localStorage.removeItem('admin_token');
       localStorage.removeItem('user');
       window.location.href = '/login';
     }

@@ -4,6 +4,7 @@ import (
 	"codex-relay/client"
 	"codex-relay/config"
 	"codex-relay/internal/controller"
+	"codex-relay/internal/middleware"
 	"context"
 	"embed"
 	"fmt"
@@ -79,6 +80,7 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", controller.Login)
+			auth.POST("/logout", controller.Logout)
 		}
 
 		// 使用量接口（按天）
@@ -88,8 +90,9 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			usage.GET("/daily/range", controller.GetDailyUsageByDateRange)
 		}
 
-		// 管理后台路由
+		// 管理后台路由（需要认证）
 		admin := api.Group("/admin")
+		admin.Use(middleware.AuthMiddleware()) // 添加认证中间件
 		{
 			// 货源管理
 			admin.GET("/sources", controller.ListSources)

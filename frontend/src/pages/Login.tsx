@@ -20,12 +20,14 @@ export default function Login() {
       });
 
       if (response.data.success) {
-        // 登录成功，保存用户信息到 localStorage
+        // 登录成功，保存 token 和用户信息到 localStorage
+        const token = response.data.token;
         const user = {
           role: response.data.user.role,
           username: response.data.user.username,
           loginTime: new Date().toISOString()
         };
+        localStorage.setItem('admin_token', token);
         localStorage.setItem('user', JSON.stringify(user));
         navigate('/admin');
       } else {

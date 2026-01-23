@@ -26,7 +26,9 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
-    if (!userStr) {
+    const token = localStorage.getItem('admin_token');
+
+    if (!userStr || !token) {
       navigate('/login');
       return;
     }
