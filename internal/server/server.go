@@ -74,6 +74,7 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 				})
 			})
 			internal.GET("/usage", controller.Usage)
+			internal.POST("/update-ip", controller.UpdateIP) // 动态 DDNS
 		}
 
 		// 认证路由

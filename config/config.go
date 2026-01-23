@@ -29,14 +29,22 @@ type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Spring   SpringConfig   `mapstructure:"spring"`
 	Admin    AdminConfig    `mapstructure:"admin"`
+	NSLookup NSLookupConfig `mapstructure:"nslookup"`
 }
 
 type AdminConfig struct {
 	Password string `mapstructure:"password"`
 }
 
+type NSLookupConfig struct {
+	CheckInterval int    `mapstructure:"check_interval"` // 检查间隔（秒）
+	RemoteURL     string `mapstructure:"remote_url"`     // 远程服务器地址
+	AuthToken     string `mapstructure:"auth_token"`     // 认证 Token
+}
+
 type InternalConfig struct {
-	Host string `mapstructure:"host"`
+	Host          string `mapstructure:"host"`
+	NSLookupToken string `mapstructure:"nslookup_token"`
 }
 
 type ServerConfig struct {
@@ -86,7 +94,8 @@ type RedisConfig struct {
 func Default() Config {
 	return Config{
 		Internal: InternalConfig{
-			Host: "192.168.3.176",
+			Host:          "192.168.3.176",
+			NSLookupToken: "nslookup-ddns-2026",
 		},
 		Server: ServerConfig{
 			Port: 8082,
@@ -122,6 +131,11 @@ func Default() Config {
 		},
 		Admin: AdminConfig{
 			Password: "admin1237788",
+		},
+		NSLookup: NSLookupConfig{
+			CheckInterval: 60,
+			RemoteURL:     "http://keySwift.top/api/internal/update-ip",
+			AuthToken:     "nslookup-ddns-2026",
 		},
 	}
 }

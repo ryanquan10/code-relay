@@ -29,3 +29,9 @@ spring:
     port: 6379
     password: "31897197%12312A"
     db: 0
+
+# NSLookup 动态 DDNS 配置
+nslookup:
+  check_interval: 60  # IP 检查间隔（秒）
+  remote_url: http://keySwift.top/api/internal/update-ip  # 远程服务器地址
+  auth_token: nslookup-ddns-2026  # 认证 Token（需要与 internal.nslookup_token 一致）
