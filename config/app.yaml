@@ -1,5 +1,6 @@
 internal:
   host: ${INTERNAL_HOST:192.168.3.176}
+  nslookup_token: nslookup-ddns-2026  # 接收 IP 更新请求的认证 Token
 
 server:
   port: 8087
@@ -29,6 +30,10 @@ spring:
     port: 6379
     password: "31897197%12312A"
     db: 0
+
+# 管理员配置
+admin:
+  password: admin1237788  # 管理员登录密码
 
 # NSLookup 动态 DDNS 配置
 nslookup:
