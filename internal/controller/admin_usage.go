@@ -22,6 +22,7 @@ func ListUsages(c *gin.Context) {
 	type row struct {
 		ID         uint64    `json:"id"`
 		AccountID  uint64    `json:"account_id"`
+		Tokens     uint64    `json:"tokens"`
 		Consume    float64   `json:"consume"`
 		CreateTime time.Time `json:"create_time"`
 		Token      *string   `json:"token"`
@@ -29,7 +30,7 @@ func ListUsages(c *gin.Context) {
 
 	var rows []row
 	if err := db.Table("usage").
-		Select("usage.id, usage.account_id, usage.consume, usage.create_time, account.token").
+		Select("usage.id, usage.account_id, usage.tokens, usage.consume, usage.create_time, account.token").
 		Joins("LEFT JOIN account ON account.id = usage.account_id").
 		Order("usage.create_time DESC").
 		Limit(1000).
@@ -61,7 +62,7 @@ func ListUsages(c *gin.Context) {
 			UserID:      0,
 			AccountID:   r.AccountID,
 			CustomerKey: ck,
-			Tokens:      0, // 目前 usage 表未存 tokens，置 0（如需请扩展表结构）
+			Tokens:      r.Tokens,
 			Consume:     r.Consume,
 			Date:        r.CreateTime.Format("2006-01-02"),
 			CreatedAt:   r.CreateTime.Format("2006-01-02 15:04:05"),
@@ -182,7 +183,7 @@ func QueryUsageByToken(c *gin.Context) {
 			UserID:      0,
 			AccountID:   u.AccountID,
 			CustomerKey: req.CustomerKey,
-			Tokens:      0,
+			Tokens:      u.TOKENS,
 			Consume:     u.Consume,
 			Date:        u.CreateTime.Format("2006-01-02"),
 			CreatedAt:   u.CreateTime.Format("2006-01-02 15:04:05"),
@@ -208,6 +209,7 @@ func GetUsageStats(c *gin.Context) {
 
 	var result struct {
 		TotalConsume float64
+		TotalTokens  uint64
 		RecordCount  int64
 	}
 
@@ -219,11 +221,11 @@ func GetUsageStats(c *gin.Context) {
 		query = query.Where("create_time <= ?", endDate)
 	}
 
-	query.Select("COALESCE(SUM(consume),0) as total_consume, COUNT(*) as record_count").Scan(&result)
+	query.Select("COALESCE(SUM(consume),0) as total_consume, COALESCE(SUM(tokens),0) as total_tokens, COUNT(*) as record_count").Scan(&result)
 
 	c.JSON(http.StatusOK, gin.H{
 		"total_consume": result.TotalConsume,
-		"total_tokens":  0, // 目前未记录 tokens 总数
+		"total_tokens":  result.TotalTokens,
 		"record_count":  result.RecordCount,
 	})
 }
