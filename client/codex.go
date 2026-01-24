@@ -415,6 +415,22 @@ func (c *codexRelay) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 使用已配置的代理处理请求
+	// 余额不足直接返回给下游客户端
+	custTok := r.Header.Get("Authorization")
+	if strings.HasPrefix(custTok, "Bearer ") {
+		custTok = strings.TrimPrefix(custTok, "Bearer ")
+	}
+	if custTok != "" {
+		if _, err := c.tokenConvertService.ConvertTokenAndCheck(custTok); err != nil {
+			if strings.Contains(err.Error(), "insufficient balance") {
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(http.StatusPaymentRequired)
+				fmt.Fprint(w, `{"error":"insufficient_balance","message":"账户余额不足，请充值"}`)
+				return
+			}
+		}
+	}
+
 	log.Printf("[Codex] 开始处理请求: %s %s", r.Method, r.URL.Path)
 	c.proxy.ServeHTTP(w, r)
 }

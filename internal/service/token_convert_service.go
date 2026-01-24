@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"codex-relay/internal/entity"
@@ -50,16 +50,14 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 		return nil, fmt.Errorf("account not found for token")
 	}
 
-	log.Printf("[TokenConvert] 找到账号 ID=%d, ProductID=%d, SourceID=%d",
+	log.Printf("[TokenConvert] 找到账号 ID=%d, ProductID=%d, SourceID=%d", account.ID, account.ProductID, account.SourceID)
 
-    // 额度检查：UsedBalance > Balance 视为余额不足
-    if account.UsedBalance > account.Balance {
-        log.Printf("[TokenConvert] 账号余额不足 [ID: %d, Balance: %.2f, UsedBalance: %.2f, 欠费: %.2f]",
-            account.ID, account.Balance, account.UsedBalance, account.UsedBalance-account.Balance)
-        return nil, fmt.Errorf("insufficient balance")
-    }
-
-		account.ID, account.ProductID, account.SourceID)
+	// 额度检查：UsedBalance > Balance 视为余额不足
+	if account.UsedBalance > account.Balance {
+		log.Printf("[TokenConvert] 账号余额不足 [ID: %d, Balance: %.2f, UsedBalance: %.2f, 欠费: %.2f]",
+			account.ID, account.Balance, account.UsedBalance, account.UsedBalance-account.Balance)
+		return nil, fmt.Errorf("insufficient balance")
+	}
 
 	// 2. 根据 SourceID 查找 AccountSource (获取上流配置)
 	accountSource, err := s.accountSourceRepo.GetByID(account.SourceID)
