@@ -164,7 +164,7 @@ func (c *codexRelay) setupProxy(config RelayConfig) error {
 		*req = *req.WithContext(ctx)
 
 		// 使用 token_convert_service 转换 token 和上流地址
-		upstreamConfig, err := c.tokenConvertService.ConvertToken(customerToken)
+		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken)
 		if err != nil {
 			log.Printf("[Codex TokenConvert] 转换失败: %v, 使用默认配置", err)
 			// 如果转换失败，使用默认的 token 测试用于

@@ -23,9 +23,10 @@ type Config struct {
 }
 
 type NSLookupConfig struct {
-	CheckInterval int    `yaml:"check_interval"`
-	RemoteURL     string `yaml:"remote_url"`
-	AuthToken     string `yaml:"auth_token"`
+	CheckInterval int      `yaml:"check_interval"`
+	RemoteURLs    []string `yaml:"remote_urls"`
+	RemoteURL     string   `yaml:"remote_url"` // 兼容旧配置
+	AuthToken     string   `yaml:"auth_token"`
 }
 
 // IPUpdateRequest IP 更新请求
@@ -49,13 +50,18 @@ func main() {
 		log.Fatalf("❌ 加载配置失败: %v", err)
 	}
 
-	if cfg.NSLookup.RemoteURL == "" {
-		log.Fatalf("❌ 配置错误: remote_url 不能为空")
+	// 兼容旧字段 remote_url
+	if len(cfg.NSLookup.RemoteURLs) == 0 && cfg.NSLookup.RemoteURL != "" {
+		cfg.NSLookup.RemoteURLs = []string{cfg.NSLookup.RemoteURL}
+	}
+
+	if len(cfg.NSLookup.RemoteURLs) == 0 {
+		log.Fatalf("❌ 配置错误: remote_urls 不能为空")
 	}
 
 	log.Printf("🚀 本地 IP 监控服务启动")
 	log.Printf("📡 检查间隔: %d 秒", cfg.NSLookup.CheckInterval)
-	log.Printf("🔗 远程服务器: %s", cfg.NSLookup.RemoteURL)
+	log.Printf("🔗 远程服务器: %s", strings.Join(cfg.NSLookup.RemoteURLs, ", "))
 
 	// 初始检查
 	if err := checkAndNotify(&cfg.NSLookup); err != nil {
@@ -145,9 +151,9 @@ func checkAndNotify(cfg *NSLookupConfig) error {
 	return nil
 }
 
-// notifyRemote 通知远程服务器
+// notifyRemote 通知远程服务器（对所有 URL）
 func notifyRemote(cfg *NSLookupConfig, ip string) error {
-	// 构建请求
+	// 构建请求体
 	req := IPUpdateRequest{
 		IP:        ip,
 		Timestamp: time.Now().Unix(),
@@ -158,25 +164,39 @@ func notifyRemote(cfg *NSLookupConfig, ip string) error {
 		return fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 发送 HTTP 请求
-	httpReq, err := http.NewRequest("POST", cfg.RemoteURL, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+cfg.AuthToken)
-
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("发送请求失败: %w", err)
-	}
-	defer resp.Body.Close()
+	var errs []string
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("服务器返回错误: %d - %s", resp.StatusCode, string(body))
+	for _, u := range cfg.RemoteURLs {
+		if strings.TrimSpace(u) == "" {
+			continue
+		}
+
+		httpReq, err := http.NewRequest("POST", u, bytes.NewReader(data))
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("创建请求失败(%s): %v", u, err))
+			continue
+		}
+
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+cfg.AuthToken)
+
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("发送请求失败(%s): %v", u, err))
+			continue
+		}
+		func() {
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				errs = append(errs, fmt.Sprintf("服务器错误(%s): %d - %s", u, resp.StatusCode, string(body)))
+			}
+		}()
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf(strings.Join(errs, "; "))
 	}
 
 	return nil

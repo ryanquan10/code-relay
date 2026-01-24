@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"codex-relay/internal/entity"
@@ -29,12 +29,12 @@ func NewTokenConvertService() *TokenConvertService {
 	}
 }
 
-// ConvertToken 根据客户端 token 获取上流服务器配置
+// ConvertTokenAndCheck 根据客户端 token 获取上流服务器配置
 // 逻辑：
 // 1. 使用 token 从 Account 表查找账号
 // 2. 从 Account 获取 SourceID
 // 3. 使用 SourceID 从 AccountSource 表查找上流配置（解析 Config JSON）
-func (s *TokenConvertService) ConvertToken(customerToken string) (*UpstreamConfig, error) {
+func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*UpstreamConfig, error) {
 	if customerToken == "" {
 		return nil, fmt.Errorf("customer token is empty")
 	}
@@ -51,6 +51,14 @@ func (s *TokenConvertService) ConvertToken(customerToken string) (*UpstreamConfi
 	}
 
 	log.Printf("[TokenConvert] 找到账号 ID=%d, ProductID=%d, SourceID=%d",
+
+    // 额度检查：UsedBalance > Balance 视为余额不足
+    if account.UsedBalance > account.Balance {
+        log.Printf("[TokenConvert] 账号余额不足 [ID: %d, Balance: %.2f, UsedBalance: %.2f, 欠费: %.2f]",
+            account.ID, account.Balance, account.UsedBalance, account.UsedBalance-account.Balance)
+        return nil, fmt.Errorf("insufficient balance")
+    }
+
 		account.ID, account.ProductID, account.SourceID)
 
 	// 2. 根据 SourceID 查找 AccountSource (获取上流配置)

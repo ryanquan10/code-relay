@@ -1,3 +1,5 @@
-check_interval: 60
-remote_url: http://keySwift.top/api/internal/update-ip
-auth_token: nslookup-ddns-2026
+﻿nslookup:
+  check_interval: 60
+  remote_urls:
+    - http://keySwift.top/api/internal/update-ip
+  auth_token: nslookup-ddns-2026

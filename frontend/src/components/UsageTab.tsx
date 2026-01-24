@@ -253,7 +253,7 @@ export default function UsageTab() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <span className="font-mono text-xs">
-                        {usage.customer_key.substring(0, 30)}...
+                        {usage.customer_key}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -278,6 +278,7 @@ export default function UsageTab() {
     </div>
   );
 }
+
 
 
 
