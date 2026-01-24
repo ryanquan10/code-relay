@@ -4,10 +4,12 @@ import (
 	"codex-relay/config"
 	"codex-relay/internal/mysql"
 	"codex-relay/internal/redis"
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -64,53 +66,72 @@ func UpdateIP(c *gin.Context) {
 		return
 	}
 
+	log.Printf("📡 收到 IP 更新请求: %s", req.IP)
+
+	// 先测试当前的 MySQL 和 Redis 连接是否正常
+	mysqlHealthy := testMySQLConnection()
+	redisHealthy := testRedisConnection()
+
+	if mysqlHealthy && redisHealthy {
+		log.Printf("✅ 当前数据库连接正常，无需更新")
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "IP 已收到，但当前连接正常，无需更新",
+			"data": gin.H{
+				"ip":            req.IP,
+				"mysql_healthy": true,
+				"redis_healthy": true,
+				"action":        "skipped",
+			},
+		})
+		return
+	}
+
+	log.Printf("🔄 当前连接异常 (MySQL: %v, Redis: %v)，开始更新数据库连接...", mysqlHealthy, redisHealthy)
+
 	// 更新配置
 	newRedisHost := req.IP
 	newMySQLHost := req.IP
 
-	log.Printf("📡 收到 IP 更新请求: %s", req.IP)
-	log.Printf("🔄 开始更新数据库连接...")
-
-	// 更新 Redis 连接
-	if err := reconnectRedis(newRedisHost, cfg.Spring.Redis.Port, cfg.Spring.Redis.Password, cfg.Spring.Redis.DB); err != nil {
-		log.Printf("❌ Redis 重连失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "reconnect_failed",
-			"message": "Redis 重连失败: " + err.Error(),
-		})
-		return
+	// 更新 Redis 连接（仅当 Redis 不健康时）
+	if !redisHealthy {
+		if err := reconnectRedis(newRedisHost, cfg.Spring.Redis.Port, cfg.Spring.Redis.Password, cfg.Spring.Redis.DB); err != nil {
+			log.Printf("❌ Redis 重连失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "reconnect_failed",
+				"message": "Redis 重连失败: " + err.Error(),
+			})
+			return
+		}
+		log.Printf("✅ Redis 重连成功: %s:%d", newRedisHost, cfg.Spring.Redis.Port)
+		cfg.Spring.Redis.Host = newRedisHost
 	}
-	log.Printf("✅ Redis 重连成功: %s:%d", newRedisHost, cfg.Spring.Redis.Port)
 
-	// 更新 MySQL 连接
-	newDSN := buildMySQLDSN(
-		newMySQLHost,
-		cfg.Spring.Datasource.Username,
-		cfg.Spring.Datasource.Password,
-		extractDatabase(cfg.Spring.Datasource.URL),
-	)
+	// 更新 MySQL 连接（仅当 MySQL 不健康时）
+	if !mysqlHealthy {
+		database := extractDatabase(cfg.Spring.Datasource.URL)
+		newJdbcURL := fmt.Sprintf("jdbc:mysql://%s:3306/%s?charset=utf8mb4&parseTime=True&loc=Local", newMySQLHost, database)
 
-	if err := reconnectMySQL(newDSN); err != nil {
-		log.Printf("❌ MySQL 重连失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "reconnect_failed",
-			"message": "MySQL 重连失败: " + err.Error(),
-		})
-		return
+		if err := reconnectMySQL(newJdbcURL); err != nil {
+			log.Printf("❌ MySQL 重连失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "reconnect_failed",
+				"message": "MySQL 重连失败: " + err.Error(),
+			})
+			return
+		}
+		log.Printf("✅ MySQL 重连成功: %s:3306", newMySQLHost)
+		cfg.Internal.Host = newMySQLHost
 	}
-	log.Printf("✅ MySQL 重连成功: %s:3306", newMySQLHost)
-
-	// 更新配置中的 host
-	cfg.Spring.Redis.Host = newRedisHost
-	cfg.Internal.Host = newMySQLHost
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "IP 更新成功",
 		"data": gin.H{
-			"ip":         req.IP,
-			"redis_host": newRedisHost,
-			"mysql_host": newMySQLHost,
+			"ip":            req.IP,
+			"redis_updated": !redisHealthy,
+			"mysql_updated": !mysqlHealthy,
+			"action":        "updated",
 		},
 	})
 }
@@ -133,8 +154,8 @@ func reconnectRedis(host string, port int, password string, db int) error {
 	return redis.InitFromConfig(newConfig)
 }
 
-// reconnectMySQL 重新连接 MySQL
-func reconnectMySQL(dsn string) error {
+// reconnectMySQL 重新连接 MySQL（参数是 JDBC URL）
+func reconnectMySQL(jdbcURL string) error {
 	// 关闭旧连接
 	if err := mysql.Close(); err != nil {
 		log.Printf("⚠️  关闭旧 MySQL 连接失败: %v", err)
@@ -143,19 +164,13 @@ func reconnectMySQL(dsn string) error {
 	// 创建新连接
 	newConfig := config.DatasourceConfig{
 		DriverClassName: "com.mysql.cj.jdbc.Driver",
-		URL:             dsn,
+		URL:             jdbcURL,
 		Username:        config.GetConfig().Spring.Datasource.Username,
 		Password:        config.GetConfig().Spring.Datasource.Password,
 		Hikari:          config.GetConfig().Spring.Datasource.Hikari,
 	}
 
 	return mysql.InitFromConfig(newConfig)
-}
-
-// buildMySQLDSN 构建 MySQL DSN
-func buildMySQLDSN(host, username, password, database string) string {
-	return fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		username, password, host, database)
 }
 
 // extractDatabase 从 JDBC URL 中提取数据库名
@@ -171,4 +186,45 @@ func extractDatabase(jdbcURL string) string {
 		dbPart = dbPart[:idx]
 	}
 	return dbPart
+}
+
+// testMySQLConnection 测试 MySQL 连接是否正常
+func testMySQLConnection() bool {
+	db := mysql.DB()
+	if db == nil {
+		return false
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := sqlDB.PingContext(ctx); err != nil {
+		log.Printf("⚠️  MySQL 健康检查失败: %v", err)
+		return false
+	}
+
+	return true
+}
+
+// testRedisConnection 测试 Redis 连接是否正常
+func testRedisConnection() bool {
+	client := redis.Client()
+	if client == nil {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		log.Printf("⚠️  Redis 健康检查失败: %v", err)
+		return false
+	}
+
+	return true
 }

@@ -167,7 +167,7 @@ func notifyRemote(cfg *NSLookupConfig, ip string) error {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.AuthToken)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("发送请求失败: %w", err)
