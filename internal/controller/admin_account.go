@@ -313,6 +313,34 @@ func DeleteAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
+// BatchDeleteAccounts 批量删除账号
+func BatchDeleteAccounts(c *gin.Context) {
+	var req struct {
+		IDs []uint64 `json:"ids" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids cannot be empty"})
+		return
+	}
+
+	repo := repository.NewAccountRepository()
+	if err := repo.DeleteByIds(req.IDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "deleted",
+		"count":   len(req.IDs),
+	})
+}
+
 type accountResponse struct {
 	ID               uint64     `json:"id"`
 	AccountEmail     string     `json:"account_email"`

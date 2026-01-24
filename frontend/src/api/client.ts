@@ -136,6 +136,7 @@ export const accountAPI = {
   batchCreate: (accounts: Partial<Account>[]) => api.post<any, { success: number; failed: number }>('/accounts/batch', { accounts }),
   update: (id: number, data: Partial<Account>) => api.put<any, Account>(`/accounts/${id}`, data),
   delete: (id: number) => api.delete(`/accounts/${id}`),
+  batchDelete: (ids: number[]) => api.post<any, { message: string; count: number }>('/accounts/batch-delete', { ids }),
   updateBalance: (id: number, balance: number, usedBalance?: number) =>
     api.put(`/accounts/${id}/balance`, { balance, used_balance: usedBalance }),
 };

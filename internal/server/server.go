@@ -114,6 +114,7 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			admin.POST("/accounts/batch", controller.BatchCreateAccounts)
 			admin.PUT("/accounts/:id/balance", controller.UpdateAccountBalance)
 			admin.DELETE("/accounts/:id", controller.DeleteAccount)
+			admin.POST("/accounts/batch-delete", controller.BatchDeleteAccounts)
 
 			// 使用量查看
 			admin.GET("/usage", controller.ListUsages)

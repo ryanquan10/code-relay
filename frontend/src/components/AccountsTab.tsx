@@ -12,6 +12,7 @@ export default function AccountsTab() {
     const [showGenerateModal, setShowGenerateModal] = useState(false);
     const [searchToken, setSearchToken] = useState('');
     const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [formData, setFormData] = useState({
         account_email: '',
         token: '',
@@ -347,6 +348,47 @@ export default function AccountsTab() {
         }
     };
 
+    // 处理单个选中/取消选中
+    const handleToggleSelect = (id: number) => {
+        setSelectedIds(prev =>
+            prev.includes(id)
+                ? prev.filter(selectedId => selectedId !== id)
+                : [...prev, id]
+        );
+    };
+
+    // 处理全选/取消全选
+    const handleToggleSelectAll = () => {
+        if (selectedIds.length === accounts.length) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(accounts.map(account => account.id));
+        }
+    };
+
+    // 批量删除
+    const handleBatchDelete = async () => {
+        if (selectedIds.length === 0) {
+            alert('请先选择要删除的账号');
+            return;
+        }
+
+        if (!confirm(`确定要删除选中的 ${selectedIds.length} 个账号吗？`)) {
+            return;
+        }
+
+        try {
+            // 调用批量删除 API
+            await accountAPI.batchDelete(selectedIds);
+            alert(`成功删除 ${selectedIds.length} 个账号`);
+            setSelectedIds([]);
+            loadAccounts();
+        } catch (error) {
+            console.error('批量删除失败:', error);
+            alert('批量删除失败');
+        }
+    };
+
     if (loading) {
         return <div className="text-center py-8">加载中...</div>;
     }
@@ -383,6 +425,14 @@ export default function AccountsTab() {
                     </button>
                 </div>
                 <div className="flex gap-2">
+                    {selectedIds.length > 0 && (
+                        <button
+                            onClick={handleBatchDelete}
+                            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition"
+                        >
+                            批量删除 ({selectedIds.length})
+                        </button>
+                    )}
                     <button
                         onClick={() => setShowBatchModal(true)}
                         className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition"
@@ -412,6 +462,14 @@ export default function AccountsTab() {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                         <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <input
+                                    type="checkbox"
+                                    checked={accounts.length > 0 && selectedIds.length === accounts.length}
+                                    onChange={handleToggleSelectAll}
+                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                />
+                            </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 ID
                             </th>
@@ -450,13 +508,21 @@ export default function AccountsTab() {
                         <tbody className="bg-white divide-y divide-gray-200">
                         {accounts.length === 0 ? (
                             <tr>
-                                <td colSpan={11} className="px-6 py-8 text-center text-gray-500">
+                                <td colSpan={12} className="px-6 py-8 text-center text-gray-500">
                                     暂无数据
                                 </td>
                             </tr>
                         ) : (
                             accounts.map((account) => (
                                 <tr key={account.id} className="hover:bg-gray-50">
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.includes(account.id)}
+                                            onChange={() => handleToggleSelect(account.id)}
+                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        />
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                         {account.id}
                                     </td>

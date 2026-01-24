@@ -232,6 +232,25 @@ func (r *AccountRepository) DeleteById(id uint64) error {
 	return nil
 }
 
+// DeleteByIds 批量删除指定 ID 的 Account
+func (r *AccountRepository) DeleteByIds(ids []uint64) error {
+	db := mysql.DB()
+	if db == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	err := db.Delete(&entity.Account{}, ids).Error
+	if err != nil {
+		return fmt.Errorf("failed to batch delete accounts: %w", err)
+	}
+
+	return nil
+}
+
 // GetByUserId 根据 UserID 查询该用户的所有账户
 func (r *AccountRepository) GetByUserId(userId uint64) ([]entity.Account, error) {
 	db := mysql.DB()
