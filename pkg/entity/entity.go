@@ -162,3 +162,21 @@ type AccountSourceConfig struct {
 	APIKey      *string `json:"api_key"`
 	HandlerType string  `json:"handler_type"` // 处理器类型
 }
+
+// UpstreamErrorLog 上游错误日志
+type UpstreamErrorLog struct {
+	ID           int64      `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	AccountID    int64      `db:"account_id" json:"account_id" gorm:"not null;index:idx_account_id"`
+	SourceID     int64      `db:"source_id" json:"source_id" gorm:"not null;index:idx_source_id"`
+	SourceType   string     `db:"source_type" json:"source_type" gorm:"type:varchar(50);not null;index:idx_source_type"`
+	UpstreamURL  *string    `db:"upstream_url" json:"upstream_url" gorm:"type:varchar(512)"`
+	RequestPath  *string    `db:"request_path" json:"request_path" gorm:"type:varchar(512)"`
+	StatusCode   *int       `db:"status_code" json:"status_code"`
+	ErrorMessage *string    `db:"error_message" json:"error_message" gorm:"type:text"`
+	RequestTime  *time.Time `db:"request_time" json:"request_time"`
+	CreatedAt    time.Time  `db:"created_at" json:"created_at" gorm:"autoCreateTime;index:idx_created_at"`
+}
+
+func (UpstreamErrorLog) TableName() string {
+	return "upstream_error_log"
+}

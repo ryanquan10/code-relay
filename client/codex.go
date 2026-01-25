@@ -59,7 +59,10 @@ func NewCodexRelayWithConfig(config RelayConfig) (*codexRelay, error) {
 
 type contextKey string
 
-const customerTokenContextKey contextKey = "customerToken"
+const (
+	customerTokenContextKey  contextKey = "customerToken"
+	upstreamConfigContextKey contextKey = "upstreamConfig"
+)
 
 // 每个用户一个独立的计数器
 var (
@@ -161,7 +164,6 @@ func (c *codexRelay) setupProxy(config RelayConfig) error {
 
 		// 将 customerToken 存入 context
 		ctx := context.WithValue(req.Context(), customerTokenContextKey, customerToken)
-		*req = *req.WithContext(ctx)
 
 		// 使用 token_convert_service 转换 token 和上流地址
 		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken)
@@ -172,12 +174,17 @@ func (c *codexRelay) setupProxy(config RelayConfig) error {
 			log.Printf("[Codex TokenConvert] 使用了缺省 token")
 			log.Printf("[Codex TokenConvert] 失败时用户 customerToken: %s", maskKey(customerToken))
 		} else {
+			// 将 upstreamConfig 存入 context（用于错误处理）
+			ctx = context.WithValue(ctx, upstreamConfigContextKey, upstreamConfig)
+
 			// 使用转换后的上流 token
 			req.Header.Set("Authorization", "Bearer "+upstreamConfig.UpstreamToken)
 			log.Printf("[Codex TokenConvert] 使用上流 URL: %s", upstreamConfig.UpstreamURL)
 			log.Printf("[Codex TokenConvert] 使用了用户 token")
 			log.Printf("[Codex TokenConvert] 成功时 upstreamConfig: %+v", upstreamConfig)
 		}
+
+		*req = *req.WithContext(ctx)
 		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
 		req.Header.Set("X-Forwarded-Proto", "https")
 		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
@@ -210,6 +217,12 @@ func (c *codexRelay) setupProxy(config RelayConfig) error {
 			customerToken = key.(string)
 		}
 
+		// 从 context 获取 upstreamConfig
+		var upstreamConfig *service.UpstreamConfig
+		if key := resp.Request.Context().Value(upstreamConfigContextKey); key != nil {
+			upstreamConfig = key.(*service.UpstreamConfig)
+		}
+
 		// 统计响应流量 (下行)
 		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
 			counter := getOrCreateCounter(customerToken)
@@ -221,6 +234,24 @@ func (c *codexRelay) setupProxy(config RelayConfig) error {
 
 		if c.logHeaders {
 			log.Printf("  响应头: %v", resp.Header)
+		}
+
+		// 检测上游错误（状态码 >= 400）
+		if resp.StatusCode >= 400 && upstreamConfig != nil {
+			requestPath := resp.Request.URL.Path
+			errorMessage := resp.Status
+
+			// 记录错误并降级上游源
+			log.Printf("[Codex] 检测到上游错误: StatusCode=%d, SourceID=%d, Path=%s",
+				resp.StatusCode, upstreamConfig.SourceID, requestPath)
+
+			// 异步处理错误（避免阻塞响应）
+			go c.tokenConvertService.HandleUpstreamError(
+				upstreamConfig,
+				requestPath,
+				resp.StatusCode,
+				errorMessage,
+			)
 		}
 
 		return nil

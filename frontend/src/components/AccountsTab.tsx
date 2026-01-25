@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { accountAPI, productAPI, Account, Product } from '../api/client';
 
 export default function AccountsTab() {
@@ -36,6 +36,7 @@ export default function AccountsTab() {
         status: 'active',
     });
     const [batchText, setBatchText] = useState('');
+    const [batchFieldKeys, setBatchFieldKeys] = useState('account_email,token,balance');
     const [batchCount, setBatchCount] = useState('1');
 
     const generateRandomHex = (bytes: number) => {
@@ -207,12 +208,16 @@ export default function AccountsTab() {
                 return;
             }
             const payload: Partial<Account> = {
-                ...formData,
                 account_email: formData.account_email.trim(),
                 balance,
+                status: formData.status,
+                product_id: formData.product_id,
             };
             if (normalizedToken) {
                 payload.token = normalizedToken;
+            }
+            if (trimmedPassword) {
+                payload.account_password = trimmedPassword;
             }
             await accountAPI.create(payload);
             alert('创建成功');
@@ -226,33 +231,54 @@ export default function AccountsTab() {
     };
 
     const handleBatchImport = async () => {
-        if (!batchText.trim()) {
-            alert('请输入账号信息');
-            return;
-        }
-        if (!batchDefaults.product_id) {
-            alert('请选择批量导入的产品');
-            return;
-        }
+    if (!batchText.trim()) {
+        alert('请输入账号信息');
+        return;
+    }
 
-        try {
-            // 解析批量导入数据
-            // 格式: email,token,balance 或 email|token|balance (每行一个)
-            const lines = batchText.trim().split('\n');
-            const accounts = lines.map((line) => {
-                const parts = line.split(/[,|]/);
-                if (parts.length < 2) {
-                    throw new Error(`格式错误: ${line}`);
-                }
-                const token = parts[1].trim();
-                const balance = parts[2] ? parseFloat(parts[2].trim()) : undefined;
-                return {
-                    account_email: parts[0].trim(),
-                    token: token || undefined,
-                    balance,
-                    status: batchDefaults.status,
-                    product_id: batchDefaults.product_id,
-                };
+    try {
+        const lines = batchText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        const fieldKeys = batchFieldKeys.split(',').map((s) => s.trim()).filter(Boolean);
+        const numericKeys = new Set([
+            'balance','used_balance','product_id','user_id','source_id','use_status',
+            'price','original_price','sales_count','validity_days','shared_limit',
+            'sort_order','cost_price','default_balance','original_balance','stock','version'
+        ]);
+
+        const coerce = (key: string, val: string): any => {
+            if (numericKeys.has(key)) {
+                const n = Number(val);
+                return Number.isNaN(n) ? val : n;
+            }
+            return val;
+        };
+
+        const accounts = lines.map((line) => {
+            const parts = line.split(/[\s,|;]+/).filter(Boolean);
+            const obj: any = {};
+            for (let i = 0; i < Math.min(parts.length, fieldKeys.length); i += 1) {
+                const key = fieldKeys[i];
+                obj[key] = coerce(key, parts[i].trim());
+            }
+            if (batchDefaults.status && obj.status === undefined) {
+                obj.status = batchDefaults.status;
+            }
+            if (batchDefaults.product_id && obj.product_id === undefined) {
+                obj.product_id = batchDefaults.product_id;
+            }
+            return obj;
+        });
+
+        const result = await accountAPI.batchCreate(accounts as any);
+        alert(`导入完成！成功: ${result.success}, 失败: ${result.failed}`);
+        setShowBatchModal(false);
+        setBatchText('');
+        loadAccounts();
+    } catch (error) {
+        console.error('批量导入失败:', error);
+        alert('批量导入失败: ' + (error as Error).message);
+    }
+};
             });
 
             const result = await accountAPI.batchCreate(accounts);
@@ -329,7 +355,7 @@ export default function AccountsTab() {
         setEditFormData({
             account_email: account.account_email,
             token: account.token || '',
-            account_password: '',
+            account_password: account.account_password || '',
             balance: account.balance,
             used_balance: account.used_balance || 0,
             status: account.status,
@@ -356,11 +382,11 @@ export default function AccountsTab() {
                 balance: editFormData.balance,
                 used_balance: editFormData.used_balance,
                 product_id: editFormData.product_id,
+                token: normalizedToken,  // 即使是空也要更新
             };
             if (editFormData.account_password && editFormData.account_password.trim()) {
                 payload.account_password = editFormData.account_password.trim();
             }
-            if (normalizedToken) { payload.token = normalizedToken; }
             await accountAPI.update(editingAccount.id, payload);
 
             alert('更新成功');
@@ -667,7 +693,7 @@ export default function AccountsTab() {
                                         重新生成
                                     </button>
                                 </div>
-                                <textarea
+                        <textarea
                                     value={formData.token}
                                     onChange={(e) => setFormData({ ...formData, token: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-xs"
@@ -814,10 +840,10 @@ export default function AccountsTab() {
                         </div>
                         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                             <p className="font-medium mb-2">格式说明:</p>
-                            <p>每行一个账号，使用逗号或竖线分隔</p>
-                            <p className="font-mono mt-1">email,token,balance (email 可选)</p>
-                            <p className="text-xs mt-1">token 为空自动生成，balance 为空取产品默认额度</p>
-                            <p className="font-mono mt-1">示例: user@example.com,sk-xxx123,10.00</p>
+                            <p>每行一个账号；分隔符可为逗号、竖线、空格、制表或分号等</p>
+                            <p className="font-mono mt-1">通过字段顺序映射，如: account_email,account_password</p>
+                            <p className="text-xs mt-1">未提供的字段由默认值或后端决定，无前端限制</p>
+                            <p className="font-mono mt-1">示例: user@example.com password123</p>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                             <div>
@@ -872,7 +898,17 @@ export default function AccountsTab() {
                                 批量新增
                             </button>
                         </div>
-                        <textarea
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">字段顺序（逗号分隔）</label>
+                            <input
+                                type="text"
+                                value={batchFieldKeys}
+                                onChange={(e) => setBatchFieldKeys(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="account_email,account_password,token,balance"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">按顺序将每行解析值映射到上述字段；多余将忽略，缺失留空</p>
+                        </div>                        <textarea
                             value={batchText}
                             onChange={(e) => setBatchText(e.target.value)}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-xs"
@@ -915,7 +951,7 @@ export default function AccountsTab() {
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">账号密码</label>
                                 <input
-                                    type="password"
+                                    type="text"
                                     value={editFormData.account_password}
                                     onChange={(e) => setEditFormData({ ...editFormData, account_password: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
@@ -990,8 +1026,9 @@ export default function AccountsTab() {
                                 <label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
                                 <select
                                     value={editFormData.product_id}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50"
-                                    disabled
+                                    onChange={(e) => setEditFormData({ ...editFormData, product_id: Number(e.target.value) })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    required
                                 >
                                     {products.map((product) => (
                                         <option key={product.id} value={product.id}>
@@ -999,7 +1036,6 @@ export default function AccountsTab() {
                                         </option>
                                     ))}
                                 </select>
-                                <p className="text-xs text-gray-500 mt-1">产品不可编辑</p>
                             </div>
                             <div className="flex justify-end space-x-3 pt-4">
                                 <button

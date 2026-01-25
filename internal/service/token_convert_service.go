@@ -1,39 +1,54 @@
 package service
 
 import (
+	"codex-relay/internal/redis"
 	"codex-relay/internal/repository"
 	"codex-relay/pkg/entity"
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // TokenConvertService 负责将客户端 token 转换为上流服务器地址和上流 token
 type TokenConvertService struct {
-	accountRepo       *repository.AccountRepository
-	accountSourceRepo *repository.AccountSourceRepository
+	accountRepo          *repository.AccountRepository
+	accountSourceRepo    *repository.AccountSourceRepository
+	sourceProductRepo    *repository.AccountSourceProductRepository
+	errorLogRepo         *repository.UpstreamErrorLogRepository
+	redisPriorityTTL     time.Duration // Redis 优先级降级的过期时间（默认 1 小时）
+	enablePrioritySwitch bool          // 是否启用优先级切换
 }
 
 // UpstreamConfig 包含上流服务器的配置信息
 type UpstreamConfig struct {
 	UpstreamURL   string // 上流服务器地址
 	UpstreamToken string // 上流服务器的 API Key/Token
+	AccountID     uint64 // 账户 ID（用于错误日志）
+	SourceID      int64  // 上游源 ID
+	SourceType    string // 上游源类型
+	ProductID     int64  // 产品 ID
 }
 
 // NewTokenConvertService 创建新的 TokenConvertService 实例
 func NewTokenConvertService() *TokenConvertService {
 	return &TokenConvertService{
-		accountRepo:       repository.NewAccountRepository(),
-		accountSourceRepo: repository.NewAccountSourceRepository(),
+		accountRepo:          repository.NewAccountRepository(),
+		accountSourceRepo:    repository.NewAccountSourceRepository(),
+		sourceProductRepo:    repository.NewAccountSourceProductRepository(),
+		errorLogRepo:         repository.NewUpstreamErrorLogRepository(),
+		redisPriorityTTL:     1 * time.Hour, // 默认 1 小时
+		enablePrioritySwitch: true,          // 默认启用优先级切换
 	}
 }
 
 // ConvertTokenAndCheck 根据客户端 token 获取上流服务器配置
 // 逻辑：
 // 1. 使用 token 从 Account 表查找账号
-// 2. 从 Account 获取 SourceID
-// 3. 使用 SourceID 从 AccountSource 表查找上流配置（解析 Config JSON）
+// 2. 从 Account 获取 SourceID 和 ProductID
+// 3. 根据优先级降级机制选择可用的上游配置
 func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*UpstreamConfig, error) {
 	if customerToken == "" {
 		return nil, fmt.Errorf("customer token is empty")
@@ -59,7 +74,41 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 		return nil, fmt.Errorf("insufficient balance")
 	}
 
-	// 2. 根据 SourceID 查找 AccountSource (获取上流配置)
+	// 2. 根据 ProductID 查询所有可用的上游源（按优先级排序）
+	sources, err := s.sourceProductRepo.GetSourcesByProductID(account.ProductID)
+	if err != nil {
+		log.Printf("[TokenConvert] 查询 Product 的上游源失败: %v", err)
+		return nil, fmt.Errorf("failed to find sources for product: %w", err)
+	}
+
+	if len(sources) == 0 {
+		log.Printf("[TokenConvert] Product (ID=%d) 没有配置任何上游源", account.ProductID)
+		// 降级：使用原始的 SourceID 查询（兼容旧逻辑）
+		return s.getUpstreamConfigBySourceID(account)
+	}
+
+	// 3. 优先级降级逻辑：根据 Redis 选择可用的上游
+	selectedSource := s.selectAvailableSource(sources)
+	if selectedSource == nil {
+		log.Printf("[TokenConvert] 所有上游源都不可用，降级使用默认配置")
+		return s.getUpstreamConfigBySourceID(account)
+	}
+
+	// 4. 构建 UpstreamConfig
+	upstreamConfig, err := s.buildUpstreamConfig(account, selectedSource)
+	if err != nil {
+		log.Printf("[TokenConvert] 构建上游配置失败: %v", err)
+		return nil, err
+	}
+
+	log.Printf("[TokenConvert] 转换成功: CustomerToken=%s -> SourceID=%d, UpstreamURL=%s",
+		maskToken(customerToken), selectedSource.ID, upstreamConfig.UpstreamURL)
+
+	return upstreamConfig, nil
+}
+
+// getUpstreamConfigBySourceID 根据 account.SourceID 查询上游配置（兼容旧逻辑）
+func (s *TokenConvertService) getUpstreamConfigBySourceID(account *entity.Account) (*UpstreamConfig, error) {
 	accountSource, err := s.accountSourceRepo.GetByID(account.SourceID)
 	if err != nil {
 		log.Printf("[TokenConvert] 查询 AccountSource 失败: %v", err)
@@ -70,20 +119,25 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 		return nil, fmt.Errorf("account_source not found")
 	}
 
+	return s.buildUpstreamConfig(account, accountSource)
+}
+
+// buildUpstreamConfig 从 AccountSource 构建 UpstreamConfig
+func (s *TokenConvertService) buildUpstreamConfig(account *entity.Account, source *entity.AccountSource) (*UpstreamConfig, error) {
 	upstreamURL := ""
 	upstreamToken := ""
-	if accountSource.UpstreamURL != nil {
-		upstreamURL = strings.TrimSpace(*accountSource.UpstreamURL)
+	if source.UpstreamURL != nil {
+		upstreamURL = strings.TrimSpace(*source.UpstreamURL)
 	}
-	if accountSource.UpstreamToken != nil {
-		upstreamToken = strings.TrimSpace(*accountSource.UpstreamToken)
+	if source.UpstreamToken != nil {
+		upstreamToken = strings.TrimSpace(*source.UpstreamToken)
 	}
 
-	// 3. 解析 Config JSON 获取 APIURL 和 APIKey (作为兼容回退)
+	// 解析 Config JSON 获取 APIURL 和 APIKey (作为兼容回退)
 	if upstreamURL == "" || upstreamToken == "" {
 		var config entity.AccountSourceConfig
-		if len(accountSource.Config) > 0 {
-			if err := json.Unmarshal(accountSource.Config, &config); err != nil {
+		if len(source.Config) > 0 {
+			if err := json.Unmarshal(source.Config, &config); err != nil {
 				log.Printf("[TokenConvert] 解析 AccountSource Config 失败: %v", err)
 				return nil, fmt.Errorf("failed to parse account_source config: %w", err)
 			}
@@ -99,23 +153,148 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 
 	// 检查 upstream_url 是否存在
 	if upstreamURL == "" {
-		log.Printf("[TokenConvert] AccountSource 的 UpstreamURL 为空 (ID=%d)", accountSource.ID)
+		log.Printf("[TokenConvert] AccountSource 的 UpstreamURL 为空 (ID=%d)", source.ID)
 		return nil, fmt.Errorf("upstream_url is empty for account_source")
 	}
 
 	// 检查 upstream_token 是否存在
 	if upstreamToken == "" {
-		log.Printf("[TokenConvert] AccountSource 的 UpstreamToken 为空 (ID=%d)", accountSource.ID)
+		log.Printf("[TokenConvert] AccountSource 的 UpstreamToken 为空 (ID=%d)", source.ID)
 		return nil, fmt.Errorf("upstream_token is empty for account_source")
 	}
 
 	upstreamConfig := &UpstreamConfig{
 		UpstreamURL:   upstreamURL,
 		UpstreamToken: upstreamToken,
+		AccountID:     account.ID,
+		SourceID:      source.ID,
+		SourceType:    source.SourceType,
+		ProductID:     account.ProductID,
 	}
 
-	log.Printf("[TokenConvert] 转换成功: CustomerToken=%s -> UpstreamURL=%s, UpstreamToken=%s",
-		maskToken(customerToken), upstreamConfig.UpstreamURL, maskToken(upstreamConfig.UpstreamToken))
-
 	return upstreamConfig, nil
+}
+
+// selectAvailableSource 根据优先级降级机制选择可用的上游源
+func (s *TokenConvertService) selectAvailableSource(sources []entity.AccountSource) *entity.AccountSource {
+	if !s.enablePrioritySwitch {
+		// 未启用优先级切换，直接返回第一个（默认优先级最高）
+		if len(sources) > 0 {
+			return &sources[0]
+		}
+		return nil
+	}
+
+	// 从 Redis 获取每个 source 的降级优先级
+	for i := range sources {
+		source := &sources[i]
+		degradedPriority := s.getDegradedPriority(source.ID)
+
+		// 如果该 source 没有被降级（degradedPriority == 0），则使用它
+		if degradedPriority == 0 {
+			log.Printf("[TokenConvert] 选择上游源: ID=%d, Priority=%d (未降级)", source.ID, source.Priority)
+			return source
+		}
+
+		log.Printf("[TokenConvert] 上游源 ID=%d 已降级，跳过 (DegradedPriority=%d)", source.ID, degradedPriority)
+	}
+
+	// 所有源都被降级，返回第一个（容错）
+	if len(sources) > 0 {
+		log.Printf("[TokenConvert] 所有上游源都已降级，使用第一个作为降级方案: ID=%d", sources[0].ID)
+		return &sources[0]
+	}
+
+	return nil
+}
+
+// getDegradedPriority 从 Redis 获取上游源的降级优先级
+// 返回值：0 表示未降级，> 0 表示已降级
+func (s *TokenConvertService) getDegradedPriority(sourceID int64) int {
+	rdb := redis.Client()
+	if rdb == nil {
+		// Redis 不可用，降级逻辑失效
+		return 0
+	}
+
+	ctx := redis.Context()
+	key := fmt.Sprintf("upstream:priority:%d", sourceID)
+
+	val, err := rdb.Get(ctx, key).Result()
+	if err != nil {
+		// key 不存在或其他错误，视为未降级
+		return 0
+	}
+
+	priority, err := strconv.Atoi(val)
+	if err != nil {
+		log.Printf("[TokenConvert] Redis 优先级值非法 (key=%s, value=%s), 视为未降级", key, val)
+		return 0
+	}
+
+	return priority
+}
+
+// DegradeSource 降级指定的上游源（设置 Redis 过期时间）
+func (s *TokenConvertService) DegradeSource(sourceID int64) error {
+	rdb := redis.Client()
+	if rdb == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+
+	ctx := redis.Context()
+	key := fmt.Sprintf("upstream:priority:%d", sourceID)
+
+	// 设置降级标记，值为 1 表示已降级
+	degradedPriority := 1
+	err := rdb.Set(ctx, key, degradedPriority, s.redisPriorityTTL).Err()
+	if err != nil {
+		log.Printf("[TokenConvert] 降级上游源失败 (SourceID=%d): %v", sourceID, err)
+		return fmt.Errorf("failed to degrade source %d: %w", sourceID, err)
+	}
+
+	log.Printf("[TokenConvert] 上游源已降级 (SourceID=%d, TTL=%v)", sourceID, s.redisPriorityTTL)
+	return nil
+}
+
+// LogUpstreamError 记录上游错误日志
+func (s *TokenConvertService) LogUpstreamError(config *UpstreamConfig, requestPath string, statusCode int, errorMessage string) error {
+	if config == nil {
+		return fmt.Errorf("upstream config is nil")
+	}
+
+	now := time.Now()
+	errorLog := &entity.UpstreamErrorLog{
+		AccountID:    int64(config.AccountID),
+		SourceID:     config.SourceID,
+		SourceType:   config.SourceType,
+		UpstreamURL:  &config.UpstreamURL,
+		RequestPath:  &requestPath,
+		StatusCode:   &statusCode,
+		ErrorMessage: &errorMessage,
+		RequestTime:  &now,
+	}
+
+	if err := s.errorLogRepo.Create(errorLog); err != nil {
+		log.Printf("[TokenConvert] 记录上游错误日志失败: %v", err)
+		return err
+	}
+
+	log.Printf("[TokenConvert] 已记录上游错误: SourceID=%d, StatusCode=%d, Path=%s", config.SourceID, statusCode, requestPath)
+	return nil
+}
+
+// HandleUpstreamError 处理上游错误（记录日志 + 降级）
+func (s *TokenConvertService) HandleUpstreamError(config *UpstreamConfig, requestPath string, statusCode int, errorMessage string) {
+	// 记录错误日志
+	if err := s.LogUpstreamError(config, requestPath, statusCode, errorMessage); err != nil {
+		log.Printf("[TokenConvert] 记录上游错误失败: %v", err)
+	}
+
+	// 降级上游源
+	if s.enablePrioritySwitch {
+		if err := s.DegradeSource(config.SourceID); err != nil {
+			log.Printf("[TokenConvert] 降级上游源失败: %v", err)
+		}
+	}
 }

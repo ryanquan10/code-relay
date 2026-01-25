@@ -1,6 +1,7 @@
-package controller
+﻿package controller
 
 import (
+	"codex-relay/pkg/utils"
 	"codex-relay/internal/mysql"
 	"codex-relay/internal/repository"
 	"codex-relay/pkg/entity"
@@ -57,6 +58,12 @@ func GetAccountByToken(c *gin.Context) {
 	token := c.Param("token")
 	if token == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "token required"})
+		return
+	}
+
+	db := mysql.DB()
+	if db == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
 		return
 	}
 
@@ -178,105 +185,272 @@ func CreateAccount(c *gin.Context) {
 
 // BatchCreateAccounts 批量创建账号
 func BatchCreateAccounts(c *gin.Context) {
-	var req struct {
-		Accounts []struct {
-			AccountEmail    string     `json:"account_email"`
-			AccountPassword *string    `json:"account_password"`
-			Token           *string    `json:"token"`
-			Balance         *float64   `json:"balance"`
-			UsedBalance     *float64   `json:"used_balance"`
-			UseStatus       *int       `json:"use_status"`
-			Status          string     `json:"status" binding:"required"`
-			ProductID       int64      `json:"product_id" binding:"required"`
-			UserID          *uint64    `json:"user_id"`
-			ExpireDate      *time.Time `json:"expire_date"`
-			Remark          *string    `json:"remark"`
-		} `json:"accounts" binding:"required"`
-	}
+    // Support two modes: structured accounts[] or raw text + field mapping
+    var req struct {
+        Text         string   `json:"text"`
+        FieldKeys    []string `json:"field_keys"`
+        FieldKeysStr string   `json:"field_keys_str"`
+        // Defaults for text mode
+        ProductID    int64    `json:"product_id"`
+        Status       string   `json:"status"`
+        Accounts     []struct {
+            AccountEmail    string     `json:"account_email"`
+            AccountPassword *string    `json:"account_password"`
+            Token           *string    `json:"token"`
+            Balance         *float64   `json:"balance"`
+            UsedBalance     *float64   `json:"used_balance"`
+            UseStatus       *int       `json:"use_status"`
+            Status          string     `json:"status" binding:"required"`
+            ProductID       int64      `json:"product_id" binding:"required"`
+            UserID          *uint64    `json:"user_id"`
+            ExpireDate      *time.Time `json:"expire_date"`
+            Remark          *string    `json:"remark"`
+        } `json:"accounts"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+    db := mysql.DB()
+    if db == nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
+        return
+    }
 
-	db := mysql.DB()
-	if db == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
-		return
-	}
+    repo := repository.NewAccountRepository()
+    success := 0
+    failed := 0
 
-	repo := repository.NewAccountRepository()
+    // Helper: normalize key to compare across camel/snake
+    normalizeKey := func(s string) string {
+        s = strings.ToLower(strings.TrimSpace(s))
+        s = strings.ReplaceAll(s, "_", "")
+        return s
+    }
+    getVal := func(m map[string]string, want string) (string, bool) {
+        wantN := normalizeKey(want)
+        for k, v := range m {
+            if normalizeKey(k) == wantN {
+                return strings.TrimSpace(v), true
+            }
+        }
+        return "", false
+    }
 
-	success := 0
-	failed := 0
+    existsEmail := func(email string) bool {
+        if strings.TrimSpace(email) == "" { return false }
+        a, err := repo.GetByEmail(email)
+        return err == nil && a != nil
+    }
+    existsToken := func(token string) bool {
+        if strings.TrimSpace(token) == "" { return false }
+        a, err := repo.GetByToken(token)
+        return err == nil && a != nil
+    }
 
-	for _, a := range req.Accounts {
-		if strings.TrimSpace(a.Status) == "" {
-			failed++
-			continue
-		}
+    seenEmails := make(map[string]struct{})
+    seenTokens := make(map[string]struct{})
 
-		product, err := getProductByID(db, a.ProductID)
-		if err != nil {
-			failed++
-			continue
-		}
+    // If text mode is provided and accounts are empty, parse via utils
+    if len(req.Accounts) == 0 && strings.TrimSpace(req.Text) != "" {
+        fieldKeys := req.FieldKeys
+        if len(fieldKeys) == 0 {
+            if strings.TrimSpace(req.FieldKeysStr) != "" {
+                for _, p := range strings.Split(req.FieldKeysStr, ",") {
+                    p = strings.TrimSpace(p)
+                    if p != "" { fieldKeys = append(fieldKeys, p) }
+                }
+            }
+        }
+        if len(fieldKeys) == 0 {
+            // default order: first email, second password, then token and balance if present
+            fieldKeys = []string{"accountEmail", "accountPassword", "token", "balance"}
+        }
+        // Require defaults for product and status in text mode
+        if req.ProductID == 0 {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "product_id required for text import"})
+            return
+        }
+        if strings.TrimSpace(req.Status) == "" {
+            req.Status = "active"
+        }
 
-		sourceID, err := getDefaultSourceID(db, product.ID)
-		if err != nil {
-			failed++
-			continue
-		}
+        extracted := utils.ExtractAccounts(req.Text, fieldKeys)
+        for _, m := range extracted {
+            email, _ := getVal(m, "accountEmail")
+            if email == "" { email, _ = getVal(m, "account_email") }
+            password, _ := getVal(m, "accountPassword")
+            if password == "" { password, _ = getVal(m, "account_password") }
+            tokenStr, _ := getVal(m, "token")
+            balanceStr, _ := getVal(m, "balance")
+            usedBalStr, _ := getVal(m, "used_balance")
+            if usedBalStr == "" { usedBalStr, _ = getVal(m, "usedBalance") }
+            useStatusStr, _ := getVal(m, "use_status")
+            if useStatusStr == "" { useStatusStr, _ = getVal(m, "useStatus") }
+            prodStr, _ := getVal(m, "product_id")
+            if prodStr == "" { prodStr, _ = getVal(m, "productId") }
+            statusStr, _ := getVal(m, "status")
 
-		token := normalizeOptionalString(a.Token)
-		if token == nil {
-			generatedToken, err := buildDefaultToken(product.ProductCode)
-			if err != nil {
-				failed++
-				continue
-			}
-			token = &generatedToken
-		}
+            // determine product
+            productID := req.ProductID
+            if p, err := strconv.ParseInt(prodStr, 10, 64); err == nil && p > 0 {
+                productID = p
+            }
 
-		balance := product.DefaultBalance
-		if a.Balance != nil {
-			balance = *a.Balance
-		}
-		usedBalance := 0.0
-		if a.UsedBalance != nil {
-			usedBalance = *a.UsedBalance
-		}
-		useStatus := 0
-		if a.UseStatus != nil {
-			useStatus = *a.UseStatus
-		}
+            product, err := getProductByID(db, productID)
+            if err != nil {
+                failed++
+                continue
+            }
+            sourceID, err := getDefaultSourceID(db, product.ID)
+            if err != nil {
+                failed++
+                continue
+            }
 
-		account := &entity.Account{
-			AccountEmail:    strings.TrimSpace(a.AccountEmail),
-			AccountPassword: normalizeOptionalString(a.AccountPassword),
-			Token:           token,
-			Balance:         balance,
-			UsedBalance:     usedBalance,
-			UseStatus:       useStatus,
-			Status:          strings.TrimSpace(a.Status),
-			ProductID:       a.ProductID,
-			SourceID:        sourceID,
-			UserID:          a.UserID,
-			ExpireDate:      a.ExpireDate,
-			Remark:          normalizeOptionalString(a.Remark),
-		}
+            // normalize values
+            var token *string
+            t := strings.TrimSpace(tokenStr)
+            if t == "" {
+                gen, err := buildDefaultToken(product.ProductCode)
+                if err == nil { token = &gen }
+            } else {
+                token = &t
+            }
 
-		if err := repo.Create(account); err != nil {
-			failed++
-		} else {
-			success++
-		}
-	}
+            var pass *string
+            if strings.TrimSpace(password) != "" {
+                p := strings.TrimSpace(password)
+                pass = &p
+            }
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": success,
-		"failed":  failed,
-	})
+            balance := product.DefaultBalance
+            if b, err := strconv.ParseFloat(strings.TrimSpace(balanceStr), 64); err == nil {
+                balance = b
+            }
+            usedBalance := 0.0
+            if ub, err := strconv.ParseFloat(strings.TrimSpace(usedBalStr), 64); err == nil {
+                usedBalance = ub
+            }
+            useStatus := 0
+            if us, err := strconv.Atoi(strings.TrimSpace(useStatusStr)); err == nil {
+                useStatus = us
+            }
+            status := strings.TrimSpace(statusStr)
+            if status == "" { status = strings.TrimSpace(req.Status) }
+            if status == "" { status = "active" }
+
+            email = strings.TrimSpace(email)
+            if email != "" {
+                if _, ok := seenEmails[email]; ok || existsEmail(email) {
+                    failed++
+                    continue
+                }
+            }
+            if token != nil && strings.TrimSpace(*token) != "" {
+                tok := strings.TrimSpace(*token)
+                if _, ok := seenTokens[tok]; ok || existsToken(tok) {
+                    failed++
+                    continue
+                }
+            }
+
+            account := &entity.Account{
+                AccountEmail:    email,
+                AccountPassword: pass,
+                Token:           token,
+                Balance:         balance,
+                UsedBalance:     usedBalance,
+                UseStatus:       useStatus,
+                Status:          status,
+                ProductID:       productID,
+                SourceID:        sourceID,
+            }
+
+            if err := repo.Create(account); err != nil {
+                failed++
+            } else {
+                success++
+                if email != "" { seenEmails[email] = struct{}{} }
+                if token != nil && strings.TrimSpace(*token) != "" { seenTokens[strings.TrimSpace(*token)] = struct{}{} }
+            }
+        }
+
+        c.JSON(http.StatusOK, gin.H{"success": success, "failed": failed})
+        return
+    }
+
+    // Structured accounts path (original)
+    for _, a := range req.Accounts {
+        if strings.TrimSpace(a.Status) == "" {
+            failed++
+            continue
+        }
+        product, err := getProductByID(db, a.ProductID)
+        if err != nil {
+            failed++
+            continue
+        }
+        sourceID, err := getDefaultSourceID(db, product.ID)
+        if err != nil {
+            failed++
+            continue
+        }
+        token := normalizeOptionalString(a.Token)
+        if token == nil {
+            generatedToken, err := buildDefaultToken(product.ProductCode)
+            if err != nil {
+                failed++
+                continue
+            }
+            token = &generatedToken
+        }
+        email := strings.TrimSpace(a.AccountEmail)
+        if email != "" {
+            if _, ok := seenEmails[email]; ok || existsEmail(email) {
+                failed++
+                continue
+            }
+        }
+        if token != nil && strings.TrimSpace(*token) != "" {
+            tok := strings.TrimSpace(*token)
+            if _, ok := seenTokens[tok]; ok || existsToken(tok) {
+                failed++
+                continue
+            }
+        }
+        balance := product.DefaultBalance
+        if a.Balance != nil { balance = *a.Balance }
+        usedBalance := 0.0
+        if a.UsedBalance != nil { usedBalance = *a.UsedBalance }
+        useStatus := 0
+        if a.UseStatus != nil { useStatus = *a.UseStatus }
+
+        account := &entity.Account{
+            AccountEmail:    email,
+            AccountPassword: normalizeOptionalString(a.AccountPassword),
+            Token:           token,
+            Balance:         balance,
+            UsedBalance:     usedBalance,
+            UseStatus:       useStatus,
+            Status:          strings.TrimSpace(a.Status),
+            ProductID:       a.ProductID,
+            SourceID:        sourceID,
+            UserID:          a.UserID,
+            ExpireDate:      a.ExpireDate,
+            Remark:          normalizeOptionalString(a.Remark),
+        }
+        if err := repo.Create(account); err != nil {
+            failed++
+        } else {
+            success++
+            if email != "" { seenEmails[email] = struct{}{} }
+            if token != nil && strings.TrimSpace(*token) != "" { seenTokens[strings.TrimSpace(*token)] = struct{}{} }
+        }
+    }
+
+    c.JSON(http.StatusOK, gin.H{"success": success, "failed": failed})
 }
 
 // UpdateAccountBalance 更新账户余额
@@ -323,6 +497,7 @@ func UpdateAccount(c *gin.Context) {
 
 	var req struct {
 		AccountEmail    *string    `json:"account_email"`
+		ProductID       *int64     `json:"product_id"`
 		AccountPassword *string    `json:"account_password"`
 		Token           *string    `json:"token"`
 		Balance         *float64   `json:"balance"`
@@ -335,6 +510,12 @@ func UpdateAccount(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	db := mysql.DB()
+	if db == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
 		return
 	}
 
@@ -377,6 +558,28 @@ func UpdateAccount(c *gin.Context) {
 		account.UseStatus = *req.UseStatus
 	}
 
+	if req.ProductID != nil && account.ProductID != *req.ProductID {
+		product, err := getProductByID(db, *req.ProductID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "product not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		sourceID, err := getDefaultSourceID(db, product.ID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "product has no account sources"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		account.ProductID = *req.ProductID
+		account.SourceID = sourceID
+	}
 	if err := repo.Update(account); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -433,6 +636,7 @@ func BatchDeleteAccounts(c *gin.Context) {
 type accountResponse struct {
 	ID               uint64     `json:"id"`
 	AccountEmail     string     `json:"account_email"`
+	AccountPassword  *string    `json:"account_password"`
 	Token            *string    `json:"token"`
 	ProductID        int64      `json:"product_id"`
 	SourceID         int64      `json:"source_id"`
@@ -453,6 +657,7 @@ func newAccountResponse(account *entity.Account) accountResponse {
 	return accountResponse{
 		ID:               account.ID,
 		AccountEmail:     account.AccountEmail,
+		AccountPassword:  account.AccountPassword,
 		Token:            account.Token,
 		ProductID:        account.ProductID,
 		SourceID:         account.SourceID,

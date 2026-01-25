@@ -218,3 +218,21 @@ export const usageDailyAPI = {
 
 
 
+
+// 上游错误日志
+export interface UpstreamErrorLog {
+  id: number;
+  account_id: number;
+  source_id: number;
+  source_type: string;
+  upstream_url?: string | null;
+  request_path?: string | null;
+  status_code?: number | null;
+  error_message?: string | null;
+  request_time?: string | null;
+  created_at: string;
+}
+
+export const errorLogAPI = {
+  list: (params?: any) => api.get<any, UpstreamErrorLog[]>('/error-logs', { params }),
+};
