@@ -1,10 +1,10 @@
-﻿package controller
+package controller
 
 import (
-	"codex-relay/pkg/utils"
 	"codex-relay/internal/mysql"
 	"codex-relay/internal/repository"
 	"codex-relay/pkg/entity"
+	"codex-relay/pkg/utils"
 	"crypto/rand"
 	"encoding/csv"
 	"encoding/hex"
@@ -185,272 +185,343 @@ func CreateAccount(c *gin.Context) {
 
 // BatchCreateAccounts 批量创建账号
 func BatchCreateAccounts(c *gin.Context) {
-    // Support two modes: structured accounts[] or raw text + field mapping
-    var req struct {
-        Text         string   `json:"text"`
-        FieldKeys    []string `json:"field_keys"`
-        FieldKeysStr string   `json:"field_keys_str"`
-        // Defaults for text mode
-        ProductID    int64    `json:"product_id"`
-        Status       string   `json:"status"`
-        Accounts     []struct {
-            AccountEmail    string     `json:"account_email"`
-            AccountPassword *string    `json:"account_password"`
-            Token           *string    `json:"token"`
-            Balance         *float64   `json:"balance"`
-            UsedBalance     *float64   `json:"used_balance"`
-            UseStatus       *int       `json:"use_status"`
-            Status          string     `json:"status" binding:"required"`
-            ProductID       int64      `json:"product_id" binding:"required"`
-            UserID          *uint64    `json:"user_id"`
-            ExpireDate      *time.Time `json:"expire_date"`
-            Remark          *string    `json:"remark"`
-        } `json:"accounts"`
-    }
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+	// Support two modes: structured accounts[] or raw text + field mapping
+	var req struct {
+		Text         string   `json:"text"`
+		FieldKeys    []string `json:"field_keys"`
+		FieldKeysStr string   `json:"field_keys_str"`
+		// Defaults for text mode
+		ProductID int64  `json:"product_id"`
+		Status    string `json:"status"`
+		Accounts  []struct {
+			AccountEmail    string     `json:"account_email"`
+			AccountPassword *string    `json:"account_password"`
+			Token           *string    `json:"token"`
+			Balance         *float64   `json:"balance"`
+			UsedBalance     *float64   `json:"used_balance"`
+			UseStatus       *int       `json:"use_status"`
+			Status          string     `json:"status" binding:"required"`
+			ProductID       int64      `json:"product_id" binding:"required"`
+			UserID          *uint64    `json:"user_id"`
+			ExpireDate      *time.Time `json:"expire_date"`
+			Remark          *string    `json:"remark"`
+		} `json:"accounts"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-    db := mysql.DB()
-    if db == nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
-        return
-    }
+	db := mysql.DB()
+	if db == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
+		return
+	}
 
-    repo := repository.NewAccountRepository()
-    success := 0
-    failed := 0
+	repo := repository.NewAccountRepository()
+	success := 0
+	failed := 0
 
-    // Helper: normalize key to compare across camel/snake
-    normalizeKey := func(s string) string {
-        s = strings.ToLower(strings.TrimSpace(s))
-        s = strings.ReplaceAll(s, "_", "")
-        return s
-    }
-    getVal := func(m map[string]string, want string) (string, bool) {
-        wantN := normalizeKey(want)
-        for k, v := range m {
-            if normalizeKey(k) == wantN {
-                return strings.TrimSpace(v), true
-            }
-        }
-        return "", false
-    }
+	// Helper: normalize key to compare across camel/snake
+	normalizeKey := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		s = strings.ReplaceAll(s, "_", "")
+		return s
+	}
+	getVal := func(m map[string]string, want string) (string, bool) {
+		wantN := normalizeKey(want)
+		for k, v := range m {
+			if normalizeKey(k) == wantN {
+				return strings.TrimSpace(v), true
+			}
+		}
+		return "", false
+	}
 
-    existsEmail := func(email string) bool {
-        if strings.TrimSpace(email) == "" { return false }
-        a, err := repo.GetByEmail(email)
-        return err == nil && a != nil
-    }
-    existsToken := func(token string) bool {
-        if strings.TrimSpace(token) == "" { return false }
-        a, err := repo.GetByToken(token)
-        return err == nil && a != nil
-    }
+	existsEmail := func(email string) bool {
+		if strings.TrimSpace(email) == "" {
+			return false
+		}
+		a, err := repo.GetByEmail(email)
+		return err == nil && a != nil
+	}
+	existsToken := func(token string) bool {
+		if strings.TrimSpace(token) == "" {
+			return false
+		}
+		a, err := repo.GetByToken(token)
+		return err == nil && a != nil
+	}
 
-    seenEmails := make(map[string]struct{})
-    seenTokens := make(map[string]struct{})
+	seenEmails := make(map[string]struct{})
+	seenTokens := make(map[string]struct{})
 
-    // If text mode is provided and accounts are empty, parse via utils
-    if len(req.Accounts) == 0 && strings.TrimSpace(req.Text) != "" {
-        fieldKeys := req.FieldKeys
-        if len(fieldKeys) == 0 {
-            if strings.TrimSpace(req.FieldKeysStr) != "" {
-                for _, p := range strings.Split(req.FieldKeysStr, ",") {
-                    p = strings.TrimSpace(p)
-                    if p != "" { fieldKeys = append(fieldKeys, p) }
-                }
-            }
-        }
-        if len(fieldKeys) == 0 {
-            // default order: first email, second password, then token and balance if present
-            fieldKeys = []string{"accountEmail", "accountPassword", "token", "balance"}
-        }
-        // Require defaults for product and status in text mode
-        if req.ProductID == 0 {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "product_id required for text import"})
-            return
-        }
-        if strings.TrimSpace(req.Status) == "" {
-            req.Status = "active"
-        }
+	// If text mode is provided and accounts are empty, parse via utils
+	if len(req.Accounts) == 0 && strings.TrimSpace(req.Text) != "" {
+		fieldKeys := req.FieldKeys
+		if len(fieldKeys) == 0 {
+			if strings.TrimSpace(req.FieldKeysStr) != "" {
+				for _, p := range strings.Split(req.FieldKeysStr, ",") {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						fieldKeys = append(fieldKeys, p)
+					}
+				}
+			}
+		}
+		if len(fieldKeys) == 0 {
+			// default order: first email, second password, then token and balance if present
+			fieldKeys = []string{"accountEmail", "accountPassword", "token", "balance"}
+		}
+		// Require defaults for product and status in text mode
+		if req.ProductID == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "product_id required for text import"})
+			return
+		}
+		if strings.TrimSpace(req.Status) == "" {
+			req.Status = "active"
+		}
 
-        extracted := utils.ExtractAccounts(req.Text, fieldKeys)
-        for _, m := range extracted {
-            email, _ := getVal(m, "accountEmail")
-            if email == "" { email, _ = getVal(m, "account_email") }
-            password, _ := getVal(m, "accountPassword")
-            if password == "" { password, _ = getVal(m, "account_password") }
-            tokenStr, _ := getVal(m, "token")
-            balanceStr, _ := getVal(m, "balance")
-            usedBalStr, _ := getVal(m, "used_balance")
-            if usedBalStr == "" { usedBalStr, _ = getVal(m, "usedBalance") }
-            useStatusStr, _ := getVal(m, "use_status")
-            if useStatusStr == "" { useStatusStr, _ = getVal(m, "useStatus") }
-            prodStr, _ := getVal(m, "product_id")
-            if prodStr == "" { prodStr, _ = getVal(m, "productId") }
-            statusStr, _ := getVal(m, "status")
+		extracted := utils.ExtractAccountsMultiLevel(req.Text, fieldKeys)
+		for _, m := range extracted {
+			// 动态根据 fieldKeys 映射字段值
+			var email, password, tokenStr, balanceStr, usedBalStr, useStatusStr, prodStr, statusStr string
 
-            // determine product
-            productID := req.ProductID
-            if p, err := strconv.ParseInt(prodStr, 10, 64); err == nil && p > 0 {
-                productID = p
-            }
+			for _, key := range fieldKeys {
+				val, exists := getVal(m, key)
+				if !exists || val == "" {
+					continue
+				}
 
-            product, err := getProductByID(db, productID)
-            if err != nil {
-                failed++
-                continue
-            }
-            sourceID, err := getDefaultSourceID(db, product.ID)
-            if err != nil {
-                failed++
-                continue
-            }
+				normalized := normalizeKey(key)
 
-            // normalize values
-            var token *string
-            t := strings.TrimSpace(tokenStr)
-            if t == "" {
-                gen, err := buildDefaultToken(product.ProductCode)
-                if err == nil { token = &gen }
-            } else {
-                token = &t
-            }
+				// 根据标准化的字段名判断字段类型
+				if normalized == "accountemail" || normalized == "email" {
+					email = val
+				} else if normalized == "accountpassword" || normalized == "password" {
+					password = val
+				} else if normalized == "token" {
+					tokenStr = val
+				} else if normalized == "balance" {
+					balanceStr = val
+				} else if normalized == "usedbalance" {
+					usedBalStr = val
+				} else if normalized == "usestatus" {
+					useStatusStr = val
+				} else if normalized == "productid" {
+					prodStr = val
+				} else if normalized == "status" {
+					statusStr = val
+				}
+			}
 
-            var pass *string
-            if strings.TrimSpace(password) != "" {
-                p := strings.TrimSpace(password)
-                pass = &p
-            }
+			// 验证：至少需要有有效的邮箱或token
+			email = strings.TrimSpace(email)
+			password = strings.TrimSpace(password)
 
-            balance := product.DefaultBalance
-            if b, err := strconv.ParseFloat(strings.TrimSpace(balanceStr), 64); err == nil {
-                balance = b
-            }
-            usedBalance := 0.0
-            if ub, err := strconv.ParseFloat(strings.TrimSpace(usedBalStr), 64); err == nil {
-                usedBalance = ub
-            }
-            useStatus := 0
-            if us, err := strconv.Atoi(strings.TrimSpace(useStatusStr)); err == nil {
-                useStatus = us
-            }
-            status := strings.TrimSpace(statusStr)
-            if status == "" { status = strings.TrimSpace(req.Status) }
-            if status == "" { status = "active" }
+			if email == "" && strings.TrimSpace(tokenStr) == "" {
+				// 既没有邮箱也没有token，跳过这条记录
+				failed++
+				continue
+			}
 
-            email = strings.TrimSpace(email)
-            if email != "" {
-                if _, ok := seenEmails[email]; ok || existsEmail(email) {
-                    failed++
-                    continue
-                }
-            }
-            if token != nil && strings.TrimSpace(*token) != "" {
-                tok := strings.TrimSpace(*token)
-                if _, ok := seenTokens[tok]; ok || existsToken(tok) {
-                    failed++
-                    continue
-                }
-            }
+			// 验证邮箱格式（如果有邮箱）
+			if email != "" && !isValidEmail(email) {
+				// 邮箱格式无效，跳过这条记录
+				failed++
+				continue
+			}
 
-            account := &entity.Account{
-                AccountEmail:    email,
-                AccountPassword: pass,
-                Token:           token,
-                Balance:         balance,
-                UsedBalance:     usedBalance,
-                UseStatus:       useStatus,
-                Status:          status,
-                ProductID:       productID,
-                SourceID:        sourceID,
-            }
+			// 验证密码字段（避免提取到标签本身）
+			if password != "" && isPasswordLabel(password) {
+				// 密码字段是标签而不是实际密码，清空它
+				password = ""
+			}
 
-            if err := repo.Create(account); err != nil {
-                failed++
-            } else {
-                success++
-                if email != "" { seenEmails[email] = struct{}{} }
-                if token != nil && strings.TrimSpace(*token) != "" { seenTokens[strings.TrimSpace(*token)] = struct{}{} }
-            }
-        }
+			// determine product
+			productID := req.ProductID
+			if p, err := strconv.ParseInt(prodStr, 10, 64); err == nil && p > 0 {
+				productID = p
+			}
 
-        c.JSON(http.StatusOK, gin.H{"success": success, "failed": failed})
-        return
-    }
+			product, err := getProductByID(db, productID)
+			if err != nil {
+				failed++
+				continue
+			}
+			sourceID, err := getDefaultSourceID(db, product.ID)
+			if err != nil {
+				failed++
+				continue
+			}
 
-    // Structured accounts path (original)
-    for _, a := range req.Accounts {
-        if strings.TrimSpace(a.Status) == "" {
-            failed++
-            continue
-        }
-        product, err := getProductByID(db, a.ProductID)
-        if err != nil {
-            failed++
-            continue
-        }
-        sourceID, err := getDefaultSourceID(db, product.ID)
-        if err != nil {
-            failed++
-            continue
-        }
-        token := normalizeOptionalString(a.Token)
-        if token == nil {
-            generatedToken, err := buildDefaultToken(product.ProductCode)
-            if err != nil {
-                failed++
-                continue
-            }
-            token = &generatedToken
-        }
-        email := strings.TrimSpace(a.AccountEmail)
-        if email != "" {
-            if _, ok := seenEmails[email]; ok || existsEmail(email) {
-                failed++
-                continue
-            }
-        }
-        if token != nil && strings.TrimSpace(*token) != "" {
-            tok := strings.TrimSpace(*token)
-            if _, ok := seenTokens[tok]; ok || existsToken(tok) {
-                failed++
-                continue
-            }
-        }
-        balance := product.DefaultBalance
-        if a.Balance != nil { balance = *a.Balance }
-        usedBalance := 0.0
-        if a.UsedBalance != nil { usedBalance = *a.UsedBalance }
-        useStatus := 0
-        if a.UseStatus != nil { useStatus = *a.UseStatus }
+			// normalize values
+			var token *string
+			t := strings.TrimSpace(tokenStr)
+			// 只在没有密码且没有token时才生成默认token
+			if t == "" {
+				if strings.TrimSpace(password) == "" {
+					// 没有密码也没有token，生成默认token
+					gen, err := buildDefaultToken(product.ProductCode)
+					if err == nil {
+						token = &gen
+					}
+				}
+				// 如果有密码，token 保持为 nil
+			} else {
+				token = &t
+			}
 
-        account := &entity.Account{
-            AccountEmail:    email,
-            AccountPassword: normalizeOptionalString(a.AccountPassword),
-            Token:           token,
-            Balance:         balance,
-            UsedBalance:     usedBalance,
-            UseStatus:       useStatus,
-            Status:          strings.TrimSpace(a.Status),
-            ProductID:       a.ProductID,
-            SourceID:        sourceID,
-            UserID:          a.UserID,
-            ExpireDate:      a.ExpireDate,
-            Remark:          normalizeOptionalString(a.Remark),
-        }
-        if err := repo.Create(account); err != nil {
-            failed++
-        } else {
-            success++
-            if email != "" { seenEmails[email] = struct{}{} }
-            if token != nil && strings.TrimSpace(*token) != "" { seenTokens[strings.TrimSpace(*token)] = struct{}{} }
-        }
-    }
+			var pass *string
+			if strings.TrimSpace(password) != "" {
+				p := strings.TrimSpace(password)
+				pass = &p
+			}
 
-    c.JSON(http.StatusOK, gin.H{"success": success, "failed": failed})
+			balance := product.DefaultBalance
+			if b, err := strconv.ParseFloat(strings.TrimSpace(balanceStr), 64); err == nil {
+				balance = b
+			}
+			usedBalance := 0.0
+			if ub, err := strconv.ParseFloat(strings.TrimSpace(usedBalStr), 64); err == nil {
+				usedBalance = ub
+			}
+			useStatus := 0
+			if us, err := strconv.Atoi(strings.TrimSpace(useStatusStr)); err == nil {
+				useStatus = us
+			}
+			status := strings.TrimSpace(statusStr)
+			if status == "" {
+				status = strings.TrimSpace(req.Status)
+			}
+			if status == "" {
+				status = "active"
+			}
+
+			email = strings.TrimSpace(email)
+			if email != "" {
+				if _, ok := seenEmails[email]; ok || existsEmail(email) {
+					failed++
+					continue
+				}
+			}
+			if token != nil && strings.TrimSpace(*token) != "" {
+				tok := strings.TrimSpace(*token)
+				if _, ok := seenTokens[tok]; ok || existsToken(tok) {
+					failed++
+					continue
+				}
+			}
+
+			account := &entity.Account{
+				AccountEmail:    email,
+				AccountPassword: pass,
+				Token:           token,
+				Balance:         balance,
+				UsedBalance:     usedBalance,
+				UseStatus:       useStatus,
+				Status:          status,
+				ProductID:       productID,
+				SourceID:        sourceID,
+			}
+
+			if err := repo.Create(account); err != nil {
+				failed++
+			} else {
+				success++
+				if email != "" {
+					seenEmails[email] = struct{}{}
+				}
+				if token != nil && strings.TrimSpace(*token) != "" {
+					seenTokens[strings.TrimSpace(*token)] = struct{}{}
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": success, "failed": failed})
+		return
+	}
+
+	// Structured accounts path (original)
+	for _, a := range req.Accounts {
+		if strings.TrimSpace(a.Status) == "" {
+			failed++
+			continue
+		}
+		product, err := getProductByID(db, a.ProductID)
+		if err != nil {
+			failed++
+			continue
+		}
+		sourceID, err := getDefaultSourceID(db, product.ID)
+		if err != nil {
+			failed++
+			continue
+		}
+		token := normalizeOptionalString(a.Token)
+		if token == nil {
+			generatedToken, err := buildDefaultToken(product.ProductCode)
+			if err != nil {
+				failed++
+				continue
+			}
+			token = &generatedToken
+		}
+		email := strings.TrimSpace(a.AccountEmail)
+		if email != "" {
+			if _, ok := seenEmails[email]; ok || existsEmail(email) {
+				failed++
+				continue
+			}
+		}
+		if token != nil && strings.TrimSpace(*token) != "" {
+			tok := strings.TrimSpace(*token)
+			if _, ok := seenTokens[tok]; ok || existsToken(tok) {
+				failed++
+				continue
+			}
+		}
+		balance := product.DefaultBalance
+		if a.Balance != nil {
+			balance = *a.Balance
+		}
+		usedBalance := 0.0
+		if a.UsedBalance != nil {
+			usedBalance = *a.UsedBalance
+		}
+		useStatus := 0
+		if a.UseStatus != nil {
+			useStatus = *a.UseStatus
+		}
+
+		account := &entity.Account{
+			AccountEmail:    email,
+			AccountPassword: normalizeOptionalString(a.AccountPassword),
+			Token:           token,
+			Balance:         balance,
+			UsedBalance:     usedBalance,
+			UseStatus:       useStatus,
+			Status:          strings.TrimSpace(a.Status),
+			ProductID:       a.ProductID,
+			SourceID:        sourceID,
+			UserID:          a.UserID,
+			ExpireDate:      a.ExpireDate,
+			Remark:          normalizeOptionalString(a.Remark),
+		}
+		if err := repo.Create(account); err != nil {
+			failed++
+		} else {
+			success++
+			if email != "" {
+				seenEmails[email] = struct{}{}
+			}
+			if token != nil && strings.TrimSpace(*token) != "" {
+				seenTokens[strings.TrimSpace(*token)] = struct{}{}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": success, "failed": failed})
 }
 
 // UpdateAccountBalance 更新账户余额
@@ -794,4 +865,39 @@ func valueOrEmpty(p *string) string {
 
 func formatFloat(v float64) string {
 	return strconv.FormatFloat(v, 'f', 2, 64)
+}
+
+// isValidEmail 验证邮箱格式
+func isValidEmail(email string) bool {
+	// 简单的邮箱格式验证
+	if len(email) < 3 || len(email) > 255 {
+		return false
+	}
+	// 必须包含 @ 和 .
+	atIndex := strings.Index(email, "@")
+	if atIndex <= 0 || atIndex == len(email)-1 {
+		return false
+	}
+	dotIndex := strings.LastIndex(email, ".")
+	if dotIndex <= atIndex+1 || dotIndex == len(email)-1 {
+		return false
+	}
+	// 不能包含空格、中文冒号等特殊字符
+	if strings.ContainsAny(email, " \t\n\r：，。") {
+		return false
+	}
+	return true
+}
+
+// isPasswordLabel 检测是否是密码标签而不是实际密码
+func isPasswordLabel(password string) bool {
+	lower := strings.ToLower(strings.TrimSpace(password))
+	// 常见的密码标签
+	labels := []string{"密码", "password", "pwd", "密码：", "password:", "pwd:", "密:", "密："}
+	for _, label := range labels {
+		if lower == label || lower == label+"：" || lower == label+":" {
+			return true
+		}
+	}
+	return false
 }

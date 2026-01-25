@@ -4,6 +4,8 @@ import (
 	"codex-relay/pkg/entity"
 	"delivery/internal/repository"
 	"fmt"
+	"regexp"
+	"strings"
 )
 
 // DeliveryService 处理账号交付的业务逻辑
@@ -71,12 +73,70 @@ func (s *DeliveryService) GetAccount(req GetAccountRequest) (*AccountData, error
 		return nil, fmt.Errorf("failed to update account use_status: %w", err)
 	}
 
+	// 4. 生成描述信息（支持 {account_email}/{accountEmail}、{account_password}/{accountPassword} 等大小写/驼峰占位符）
+	desc := fillDescription(product.Description, account.AccountEmail, account.AccountPassword)
+
 	// 返回指定字段
 	return &AccountData{
 		AccountEmail:    account.AccountEmail,
 		AccountPassword: account.AccountPassword,
 		Token:           account.Token,
-		Description:     product.Description,
+		Description:     desc,
 		Balance:         account.Balance,
 	}, nil
+}
+
+// fillDescription 用账号信息填充描述模板；若模板无占位符则在末尾追加“邮箱/密码”
+func fillDescription(tpl *string, email string, password *string) *string {
+	var base string
+	if tpl != nil {
+		base = *tpl
+	}
+
+	replaced := replacePlaceholders(base, email, password)
+	if replaced == base {
+		// 模板无可识别占位符，则在末尾拼接账号信息
+		pwd := ""
+		if password != nil {
+			pwd = *password
+		}
+		var sb strings.Builder
+		if strings.TrimSpace(base) != "" {
+			sb.WriteString(base)
+			if !strings.HasSuffix(base, "\n") {
+				sb.WriteString("\n")
+			}
+		}
+		sb.WriteString(fmt.Sprintf("邮箱: %s   密码: %s", email, pwd))
+		s := sb.String()
+		return &s
+	}
+	return &replaced
+}
+
+// replacePlaceholders 将 { ... } 中的键做大小写/风格归一后匹配替换
+func replacePlaceholders(tpl string, email string, password *string) string {
+	re := regexp.MustCompile(`\{\s*([^{}]+?)\s*\}`)
+	return re.ReplaceAllStringFunc(tpl, func(s string) string {
+		sub := re.FindStringSubmatch(s)
+		if len(sub) < 2 {
+			return s
+		}
+		key := sub[1]
+		key = strings.ToLower(key)
+		key = strings.ReplaceAll(key, "_", "")
+		key = strings.ReplaceAll(key, "-", "")
+		key = strings.ReplaceAll(key, " ", "")
+		switch key {
+		case "accountemail":
+			return email
+		case "accountpassword":
+			if password != nil {
+				return *password
+			}
+			return ""
+		default:
+			return s
+		}
+	})
 }

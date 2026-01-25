@@ -1,114 +1,123 @@
-﻿package utils
+package utils
 
 import (
+	"log"
 	"regexp"
 	"strings"
 )
 
-// AccountField 用 map 表示一条账号信息
-type AccountField map[string]string
+// isPasswordLabel 检测是否是密码标签而不是实际密码
+func isPasswordLabel(password string) bool {
+	lower := strings.ToLower(strings.TrimSpace(password))
+	// 常见的密码标签
+	labels := []string{"密码", "password", "pwd", "密码：", "password:", "pwd:", "密:", "密：", "登录密码", "登录密码："}
+	for _, label := range labels {
+		if lower == label {
+			return true
+		}
+	}
+	return false
+}
 
-// extractAccountsMultiLevel 返回多条提取结果，按 field 顺序映射捕获组
-func extractAccountsMultiLevel(text string, field []string) []AccountField {
-	if len(field) == 0 {
-		return nil
+// ExtractAccountsMultiLevel 从文本中多级提取账号信息
+// 支持多种格式的账号/密码和 token 提取
+// 返回 []map[string]string，每个 map 包含:
+// - type: "account" 或 "token"
+// - level: "high" (结构化匹配) 或 "low" (宽松匹配)
+// - 对于 account: account_email, account_password
+// - 对于 token: token
+func ExtractAccountsMultiLevel(text string, fields []string) []map[string]string {
+	log.Println("Entering ExtractAccountsMultiLevel with text length:", len(text), "and fields:", fields, "text:", text)
+	var results []map[string]string
+
+	// 规范化文本：替换全角冒号，处理换行
+	text = strings.ReplaceAll(text, "：", ":")
+	lines := strings.Split(text, "\n")
+
+	// 高优先级正则模式 (结构化，如 "登录账号：email----登录密码：password")
+	highPatterns := []struct {
+		re    *regexp.Regexp
+		isAcc bool // true: account, false: token
+	}{
+		{regexp.MustCompile(`(?i)登录账号[:\s]*([\w\.-]+@[\w\.-]+)[-]{2,}登录密码[:\s]*([^\s]+)`), true},
+		{regexp.MustCompile(`(?i)账号[:\s]*([\w\.-]+@[\w\.-]+)[\s]+密码[:\s]*([^\s]+)`), true},
+		{regexp.MustCompile(`(?i)号[:\s]*([\w\.-]+@[\w\.-]+)[\s]+密[:\s]*([^\s]+)`), true},
+		{regexp.MustCompile(`(?i)key[:\s]*([\w\.-]+@[\w\.-]+)[\s]+密码[:\s]*([^\s]+)`), true},
+		{regexp.MustCompile(`(?i)邮箱[:\s]*([\w\.-]+@[\w\.-]+)[\s]+密码[:\s]*([^\s]+)`), true},
+		{regexp.MustCompile(`([\w\.-]+@[\w\.-]+)[-]{2,}([^\s]+)`), true}, // 宽松 email----password
+		{regexp.MustCompile(`(?i)token[:\s]*([^\s]+)`), false},
 	}
 
-	var results []AccountField
-	seen := make(map[string]bool) // key = "email|password" （或更多字段）
+	// 低优先级模式 (宽松匹配，整个行扫描)
+	lowAccRe := regexp.MustCompile(`([^\s@]+@[^\s@]+\.[^\s@]+)[\s]*([^\s]+)`) // email + possible password
 
-	// ── 级别 1：最严格（带前缀标签，如“邮箱：”“密码：”）
-\tresults = addMatches(results, seen, text,
-		`(?i)(?:邮箱[：:]?\s*|账号[：:]?\s*|Email[：:]?\s*|号:\s*|key:\s*)?`+
-			`([\w\.-]+@[\w\.-]+\.[\w]{2,})`+
-			`(?:\s*[-—–]\s*|\s*密码[：:]?\s*|\s*密:\s*|\s*----\s*|\s*----登录密码：)\s*`+
-			`([!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?A-Za-z0-9]{8,})`,
-		field, "level1 - strict")
-
-	// ── 级别 2：宽松（邮箱 + 密码直接挨着或间隔少量字符）
-	if len(results) == 0 { // 可选：如果已有严格匹配，可注释掉此条件以强制收集更多
-	\tresults = addMatches(results, seen, text,
-			`(?i)([\w\.-]+@[\w\.-]+\.[\w]{2,})\s*([!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?A-Za-z0-9]{8,})`,
-			field, "level2 - loose")
-	}
-
-	// ── 级别 3：仅邮箱（无密码）
-	emailsOnly := extractUniqueEmails(text)
-	for _, email := range emailsOnly {
-		key := email + "|"
-		if seen[key] {
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-		seen[key] = true
 
-		m := make(AccountField)
-		if len(field) >= 1 {
-			m[field[0]] = email
+		matched := false
+
+		// 先尝试高优先级匹配
+		for _, pat := range highPatterns {
+			matches := pat.re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				rec := make(map[string]string)
+				rec["level"] = "high"
+
+				if pat.isAcc {
+					email := strings.TrimSpace(matches[1])
+					password := strings.TrimSpace(matches[2])
+
+					// 跳过如果 password 是标签
+					if isPasswordLabel(password) {
+						continue
+					}
+
+					// 验证 email 格式 (简单检查)
+					if !strings.Contains(email, "@") {
+						continue
+					}
+
+					rec["type"] = "account"
+					rec["account_email"] = email
+					rec["account_password"] = password
+				} else {
+					token := strings.TrimSpace(matches[1])
+					rec["type"] = "token"
+					rec["token"] = token
+				}
+
+				results = append(results, rec)
+				matched = true
+				break
+			}
 		}
-		if len(field) >= 2 {
-			m[field[1]] = ""
+
+		if matched {
+			continue
 		}
-		m["level"] = "level3 - email only"
-		results = append(results, m)
+
+		// 尝试低优先级匹配 (仅针对 account)
+		matches := lowAccRe.FindStringSubmatch(line)
+		if len(matches) > 2 {
+			email := strings.TrimSpace(matches[1])
+			password := strings.TrimSpace(matches[2])
+
+			// 跳过标签
+			if isPasswordLabel(password) {
+				continue
+			}
+
+			rec := make(map[string]string)
+			rec["type"] = "account"
+			rec["level"] = "low"
+			rec["account_email"] = email
+			rec["account_password"] = password
+			results = append(results, rec)
+		}
 	}
 
 	return results
-}
-
-// addMatches 统一提取并加入结果（支持多条）
-func addMatches(dst []AccountField, seen map[string]bool, text, pattern string, field []string, level string) []AccountField {
-	re := regexp.MustCompile(pattern)
-	matches := re.FindAllStringSubmatch(text, -1)
-
-	for _, match := range matches {
-		if len(match) < len(field)+1 {
-			continue
-		}
-
-		m := make(AccountField)
-		for i, fname := range field {
-			val := strings.TrimSpace(match[i+1])
-			m[fname] = val
-		}
-		m["level"] = level
-
-		// 构建去重 key（可根据需要包含更多字段）
-		key := m[field[0]]
-		if len(field) >= 2 {
-			key += "|" + m[field[1]]
-		}
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-
-		dst = append(dst, m)
-	}
-
-	return dst
-}
-
-// extractUniqueEmails 提取所有不重复的邮箱
-func extractUniqueEmails(text string) []string {
-	re := regexp.MustCompile(`(?i)([\w\.-]+@[\w\.-]+\.[\w]{2,})`)
-	found := re.FindAllString(text, -1)
-
-	seen := make(map[string]struct{})
-	var unique []string
-	for _, e := range found {
-		e = strings.TrimSpace(e)
-		if e == "" {
-			continue
-		}
-		if _, ok := seen[e]; !ok {
-			seen[e] = struct{}{}
-			unique = append(unique, e)
-		}
-	}
-	return unique
-}
-
-// ExtractAccounts is the exported entry to parse text by given field order.
-func ExtractAccounts(text string, field []string) []AccountField {
-    return extractAccountsMultiLevel(text, field)
 }

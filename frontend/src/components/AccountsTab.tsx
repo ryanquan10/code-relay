@@ -279,18 +279,6 @@ export default function AccountsTab() {
         alert('批量导入失败: ' + (error as Error).message);
     }
 };
-            });
-
-            const result = await accountAPI.batchCreate(accounts);
-            alert(`导入完成！成功: ${result.success}, 失败: ${result.failed}`);
-            setShowBatchModal(false);
-            setBatchText('');
-            loadAccounts();
-        } catch (error) {
-            console.error('批量导入失败:', error);
-            alert('批量导入失败: ' + (error as Error).message);
-        }
-    };
 
     const handleBatchCreate = async () => {
         const count = Number(batchCount);
