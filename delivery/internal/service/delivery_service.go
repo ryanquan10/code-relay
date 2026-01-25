@@ -74,7 +74,7 @@ func (s *DeliveryService) GetAccount(req GetAccountRequest) (*AccountData, error
 	}
 
 	// 4. 生成描述信息（支持 {account_email}/{accountEmail}、{account_password}/{accountPassword} 等大小写/驼峰占位符）
-	desc := fillDescription(product.Description, account.AccountEmail, account.AccountPassword)
+	desc := fillDescription(product.Description, account.AccountEmail, account.AccountPassword, account.Token)
 
 	// 返回指定字段
 	return &AccountData{
@@ -86,36 +86,47 @@ func (s *DeliveryService) GetAccount(req GetAccountRequest) (*AccountData, error
 	}, nil
 }
 
-// fillDescription 用账号信息填充描述模板；若模板无占位符则在末尾追加“邮箱/密码”
-func fillDescription(tpl *string, email string, password *string) *string {
+// fillDescription 用账号信息填充描述模板；若模板无占位符则在末尾追加“邮箱/密码”  token
+func fillDescription(tpl *string, email string, password *string, token *string) *string {
 	var base string
 	if tpl != nil {
 		base = *tpl
 	}
 
-	replaced := replacePlaceholders(base, email, password)
+	replaced := replacePlaceholders(base, email, password, token)
 	if replaced == base {
 		// 模板无可识别占位符，则在末尾拼接账号信息
 		pwd := ""
 		if password != nil {
 			pwd = *password
 		}
+		tk := ""
+		if token != nil {
+			tk = *token
+		}
+
 		var sb strings.Builder
-		if strings.TrimSpace(base) != "" {
-			sb.WriteString(base)
-			if !strings.HasSuffix(base, "\n") {
+		trimmed := strings.TrimSpace(base)
+		if trimmed != "" {
+			sb.WriteString(trimmed)
+			if !strings.HasSuffix(trimmed, "\n") {
 				sb.WriteString("\n")
 			}
 		}
+
 		sb.WriteString(fmt.Sprintf("邮箱: %s   密码: %s", email, pwd))
+		if tk != "" {
+			sb.WriteString(fmt.Sprintf("   token: %s", tk))
+		}
+
 		s := sb.String()
 		return &s
 	}
 	return &replaced
 }
 
-// replacePlaceholders 将 { ... } 中的键做大小写/风格归一后匹配替换
-func replacePlaceholders(tpl string, email string, password *string) string {
+// replacePlaceholders 将 { ... } 中的键做归一化后匹配替换（支持 token）
+func replacePlaceholders(tpl string, email string, password *string, token *string) string {
 	re := regexp.MustCompile(`\{\s*([^{}]+?)\s*\}`)
 	return re.ReplaceAllStringFunc(tpl, func(s string) string {
 		sub := re.FindStringSubmatch(s)
@@ -123,16 +134,24 @@ func replacePlaceholders(tpl string, email string, password *string) string {
 			return s
 		}
 		key := sub[1]
+
+		// 归一化：转小写、去除下划线、连字符、空格
 		key = strings.ToLower(key)
 		key = strings.ReplaceAll(key, "_", "")
 		key = strings.ReplaceAll(key, "-", "")
 		key = strings.ReplaceAll(key, " ", "")
+
 		switch key {
-		case "accountemail":
+		case "accountemail", "email":
 			return email
-		case "accountpassword":
+		case "accountpassword", "password":
 			if password != nil {
 				return *password
+			}
+			return ""
+		case "accounttoken", "token":
+			if token != nil {
+				return *token
 			}
 			return ""
 		default:
