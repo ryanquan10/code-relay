@@ -135,7 +135,11 @@ export const accountAPI = {
   list: (params?: any) => api.get<any, Account[]>('/accounts', { params }),
   getByToken: (token: string) => api.get<any, Account>(`/accounts/token/${token}`),
   create: (data: Partial<Account>) => api.post<any, Account>('/accounts', data),
-  batchCreate: (accounts: Partial<Account>[]) => api.post<any, { success: number; failed: number }>('/accounts/batch', { accounts }),
+  batchCreate: (data: any) => {
+    // 如果是数组，包装为 { accounts }；如果是对象（包含 text 字段），直接发送
+    const payload = Array.isArray(data) ? { accounts: data } : data;
+    return api.post<any, { success: number; failed: number }>('/accounts/batch', payload);
+  },
   update: (id: number, data: Partial<Account>) => api.put<any, Account>(`/accounts/${id}`, data),
   delete: (id: number) => api.delete(`/accounts/${id}`),
   batchDelete: (ids: number[]) => api.post<any, { message: string; count: number }>('/accounts/batch-delete', { ids }),

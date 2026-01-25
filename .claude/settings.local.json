@@ -11,7 +11,9 @@
       "Bash(curl:*)",
       "Bash(bash:*)",
       "Bash(ren nslookup _nslookup)",
-      "Bash(nul)"
+      "Bash(nul)",
+      "Bash(tasklist:*)",
+      "Bash(./codex-relay.exe)"
     ],
     "deny": [],
     "ask": []

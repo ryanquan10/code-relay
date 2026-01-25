@@ -36,7 +36,7 @@ export default function AccountsTab() {
         status: 'active',
     });
     const [batchText, setBatchText] = useState('');
-    const [batchFieldKeys, setBatchFieldKeys] = useState('account_email,token,balance');
+    const [batchFieldKeys, setBatchFieldKeys] = useState('account_email,account_password');
     const [batchCount, setBatchCount] = useState('1');
 
     const generateRandomHex = (bytes: number) => {
@@ -236,40 +236,24 @@ export default function AccountsTab() {
         return;
     }
 
-    try {
-        const lines = batchText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-        const fieldKeys = batchFieldKeys.split(',').map((s) => s.trim()).filter(Boolean);
-        const numericKeys = new Set([
-            'balance','used_balance','product_id','user_id','source_id','use_status',
-            'price','original_price','sales_count','validity_days','shared_limit',
-            'sort_order','cost_price','default_balance','original_balance','stock','version'
-        ]);
+    if (!batchDefaults.product_id) {
+        alert('请选择默认产品');
+        return;
+    }
 
-        const coerce = (key: string, val: string): any => {
-            if (numericKeys.has(key)) {
-                const n = Number(val);
-                return Number.isNaN(n) ? val : n;
-            }
-            return val;
+    try {
+        // 使用后端的文本解析模式，而不是前端自己解析
+        // 这样可以利用后端的 ExtractAccountsMultiLevel 函数
+        const fieldKeys = batchFieldKeys.split(',').map((s) => s.trim()).filter(Boolean);
+
+        const payload = {
+            text: batchText,
+            field_keys: fieldKeys.length > 0 ? fieldKeys : ['account_email', 'account_password'],
+            product_id: batchDefaults.product_id,
+            status: batchDefaults.status || 'active',
         };
 
-        const accounts = lines.map((line) => {
-            const parts = line.split(/[\s,|;]+/).filter(Boolean);
-            const obj: any = {};
-            for (let i = 0; i < Math.min(parts.length, fieldKeys.length); i += 1) {
-                const key = fieldKeys[i];
-                obj[key] = coerce(key, parts[i].trim());
-            }
-            if (batchDefaults.status && obj.status === undefined) {
-                obj.status = batchDefaults.status;
-            }
-            if (batchDefaults.product_id && obj.product_id === undefined) {
-                obj.product_id = batchDefaults.product_id;
-            }
-            return obj;
-        });
-
-        const result = await accountAPI.batchCreate(accounts as any);
+        const result = await accountAPI.batchCreate(payload as any);
         alert(`导入完成！成功: ${result.success}, 失败: ${result.failed}`);
         setShowBatchModal(false);
         setBatchText('');
@@ -828,10 +812,12 @@ export default function AccountsTab() {
                         </div>
                         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                             <p className="font-medium mb-2">格式说明:</p>
-                            <p>每行一个账号；分隔符可为逗号、竖线、空格、制表或分号等</p>
-                            <p className="font-mono mt-1">通过字段顺序映射，如: account_email,account_password</p>
-                            <p className="text-xs mt-1">未提供的字段由默认值或后端决定，无前端限制</p>
-                            <p className="font-mono mt-1">示例: user@example.com password123</p>
+                            <p className="mb-2">支持多种格式，后端智能识别：</p>
+                            <p className="font-mono text-xs mb-1">• 登录账号：email----登录密码：password</p>
+                            <p className="font-mono text-xs mb-1">• 邮箱: email   密码: password</p>
+                            <p className="font-mono text-xs mb-1">• email----password</p>
+                            <p className="font-mono text-xs mb-1">• email  password (多个空格)</p>
+                            <p className="text-xs mt-2 text-gray-600">提示：系统会自动跳过视频教程等无关内容</p>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                             <div>
@@ -887,21 +873,21 @@ export default function AccountsTab() {
                             </button>
                         </div>
                         <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">字段顺序（逗号分隔）</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">字段顺序（逗号分隔，可选）</label>
                             <input
                                 type="text"
                                 value={batchFieldKeys}
                                 onChange={(e) => setBatchFieldKeys(e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="account_email,account_password,token,balance"
+                                placeholder="account_email,account_password"
                             />
-                            <p className="text-xs text-gray-500 mt-1">按顺序将每行解析值映射到上述字段；多余将忽略，缺失留空</p>
+                            <p className="text-xs text-gray-500 mt-1">通常无需修改，后端会智能识别格式</p>
                         </div>                        <textarea
                             value={batchText}
                             onChange={(e) => setBatchText(e.target.value)}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-xs"
                             rows={10}
-                            placeholder="user1@example.com,sk-token1,10.00&#10;user2@example.com,sk-token2,20.00"
+                            placeholder="官网登录账号,支持Widsurf 支持claude4,  偶尔支持 claude4.5&#10;基础使用视频教程地址：https://fcn0uln516co.feishu.cn/wiki/EYpiwWZstiYpCgkkYRPcjdDKnic&#10;&#10;邮箱: user@example.com   密码: password123"
                         />
                         <div className="flex justify-end space-x-3 pt-4">
                             <button
