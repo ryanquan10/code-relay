@@ -9,7 +9,7 @@ export default function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
   const navigate = useNavigate();
 
   const menuItems = [
-    { id: 'sources', label: '账号供应商管理', icon: '📦' },
+    { id: 'sources', label: '账号供应管理', icon: '📦' },
     { id: 'products', label: '产品管理', icon: '🛍️' },
     { id: 'accounts', label: '账号管理', icon: '👤' },
     { id: 'usage', label: '使用量查看', icon: '📊' },

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// AccountSource 账号供应商（存储上游地址）
+// AccountSource 账号供应（存储上游地址）
 type AccountSource struct {
 	ID            int64           `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
 	SourceName    string          `db:"source_name" json:"source_name" gorm:"type:varchar(100);not null"`
@@ -64,11 +64,8 @@ func (Product) TableName() string {
 
 // ProductPlatform 产品平台关联
 type ProductPlatform struct {
-	ID          int64     `db:"id" json:"id" gorm:"primaryKey"`
-	ProductCode string    `db:"product_code" json:"product_code" gorm:"index;not null"`    // 商品在平台的Code
-	Platform    string    `db:"platform" json:"platform" gorm:"type:varchar(50);not null"` // xianyu/douyin/self
-	CreateTime  time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
-	UpdateTime  time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+	ProductCode string `db:"product_code" json:"product_code" gorm:"index;not null"`    // 商品在平台的Code
+	Platform    string `db:"platform" json:"platform" gorm:"type:varchar(50);not null"` // xianyu/douyin/self
 }
 
 func (ProductPlatform) TableName() string {
@@ -99,7 +96,7 @@ func (p PlatformArray) Value() (driver.Value, error) {
 	return json.Marshal(p)
 }
 
-// AccountSourceProcut 账号供应商与产品关系
+// AccountSourceProcut 账号供应与产品关系
 type AccountSourceProcut struct {
 	ID         int64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
 	ProductID  int64     `db:"product_id" json:"product_id" gorm:"not null;index"`

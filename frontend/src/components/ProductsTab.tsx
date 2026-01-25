@@ -159,11 +159,11 @@ export default function ProductsTab() {
     e.preventDefault();
     try {
       if (formData.sources.length === 0) {
-        alert('请至少选择一个账号供应商');
+        alert('请至少选择一个账号供应');
         return;
       }
       if (formData.sources.some((item) => item.source_id <= 0 || item.weight <= 0)) {
-        alert('账号供应商权重必须大于 0');
+        alert('账号供应权重必须大于 0');
         return;
       }
       let platformsParsed: any = [];
@@ -362,7 +362,7 @@ export default function ProductsTab() {
                 共享限制
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                账号供应商
+                账号供应
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 自动发货
@@ -553,9 +553,9 @@ export default function ProductsTab() {
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">账号供应商</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">账号供应</label>
                 {sources.length === 0 ? (
-                  <p className="text-sm text-gray-500">暂无可用账号供应商</p>
+                  <p className="text-sm text-gray-500">暂无可用账号供应</p>
                 ) : (
                   <div className="space-y-2">
                     {sources.map((source) => {
@@ -821,15 +821,17 @@ export default function ProductsTab() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">联系方式</label>
-                <textarea
-                  value={formData.contact_info}
-                  onChange={(e) => setFormData({ ...formData, contact_info: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  rows={2}
-                />
-              </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">平台映射(JSON)</label>
+                    <textarea
+                        value={formData.platforms_json}
+                        onChange={(e) => setFormData({ ...formData, platforms_json: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono"
+                        rows={8}
+                        placeholder='[{"platform":"xianyu","product_code":"ABC"},{"platform":"douyin","product_code":"DEF"}]'
+                    />
+                    <p className="mt-1 text-xs text-gray-500">填写原生 JSON 数组，例如: {`[{   "product_code": "",   "platform": ""},]`}。保存时将原样提交。</p>
+                </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">使用说明</label>
@@ -841,17 +843,9 @@ export default function ProductsTab() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">平台映射(JSON)</label>
-                <textarea
-                  value={formData.platforms_json}
-                  onChange={(e) => setFormData({ ...formData, platforms_json: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono"
-                  rows={4}
-                  placeholder='[{"platform":"xianyu","product_code":"ABC"},{"platform":"douyin","product_code":"DEF"}]'
-                />
-                  <p className="mt-1 text-xs text-gray-500">填写原生 JSON 数组，例如: {`[{"键":"值"}]`}。保存时将原样提交。</p>
-              </div>              <div className="flex justify-end space-x-3 pt-4">
+
+
+              <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
                   onClick={handleCloseModal}

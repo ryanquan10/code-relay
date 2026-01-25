@@ -43,7 +43,7 @@ export default api;
 
 // API 接口定义
 
-// 账号供应商管理
+// 账号供应管理
 export interface Source {
   id: number;
   source_name: string;

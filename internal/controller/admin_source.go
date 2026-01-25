@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ListSources 获取账号供应商列表
+// ListSources 获取账号供应列表
 func ListSources(c *gin.Context) {
 	db := mysql.DB()
 	if db == nil {
@@ -32,7 +32,7 @@ func ListSources(c *gin.Context) {
 	c.JSON(http.StatusOK, sources)
 }
 
-// CreateSource 创建账号供应商
+// CreateSource 创建账号供应
 func CreateSource(c *gin.Context) {
 	db := mysql.DB()
 	if db == nil {
@@ -110,7 +110,7 @@ func CreateSource(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": source.ID})
 }
 
-// UpdateSource 更新账号供应商
+// UpdateSource 更新账号供应
 func UpdateSource(c *gin.Context) {
 	db := mysql.DB()
 	if db == nil {

@@ -152,7 +152,7 @@ export default function SourcesTab() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除这个账号供应商吗？')) return;
+    if (!confirm('确定要删除这个账号供应吗？')) return;
     try {
       await sourceAPI.delete(id);
       alert('删除成功');
@@ -176,12 +176,12 @@ export default function SourcesTab() {
   return (
     <div>
       <div className="mb-6 flex justify-between items-center">
-        <h3 className="text-xl font-semibold text-gray-800">账号供应商列表</h3>
+        <h3 className="text-xl font-semibold text-gray-800">账号供应列表</h3>
         <button
           onClick={() => setShowModal(true)}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
         >
-          + 添加账号供应商
+          + 添加账号供应
         </button>
       </div>
 
@@ -328,7 +328,7 @@ export default function SourcesTab() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
           <div className="bg-white rounded-lg p-6 w-full max-w-2xl m-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">
-              {editingSource ? '编辑账号供应商' : '添加账号供应商'}
+              {editingSource ? '编辑账号供应' : '添加账号供应'}
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">

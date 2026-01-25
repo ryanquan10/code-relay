@@ -98,6 +98,7 @@ func CreateProduct(c *gin.Context) {
 		ValidityDays     *int                   `json:"validity_days"`
 		SharedLimit      *int                   `json:"shared_limit"`
 		Sources          []productSourcePayload `json:"sources" binding:"required"`
+		Platforms        entity.PlatformArray   `json:"platforms"`
 		CostPrice        *float64               `json:"cost_price"`
 		DefaultBalance   *float64               `json:"default_balance"`
 		OriginalBalance  *float64               `json:"original_balance"`
@@ -205,6 +206,7 @@ func CreateProduct(c *gin.Context) {
 		AutoDelivery:     autoDelivery,
 		SortOrder:        sortOrder,
 		Status:           status,
+		Platforms:        req.Platforms,
 		Version:          version,
 	}
 
@@ -265,6 +267,7 @@ func UpdateProduct(c *gin.Context) {
 		ValidityDays     *int                    `json:"validity_days"`
 		SharedLimit      *int                    `json:"shared_limit"`
 		Sources          *[]productSourcePayload `json:"sources"`
+		Platforms        *entity.PlatformArray   `json:"platforms"`
 		CostPrice        *float64                `json:"cost_price"`
 		DefaultBalance   *float64                `json:"default_balance"`
 		OriginalBalance  *float64                `json:"original_balance"`
@@ -365,6 +368,9 @@ func UpdateProduct(c *gin.Context) {
 	}
 	if req.Version != nil {
 		product.Version = *req.Version
+	}
+	if req.Platforms != nil {
+		product.Platforms = *req.Platforms
 	}
 
 	if req.Sources != nil {

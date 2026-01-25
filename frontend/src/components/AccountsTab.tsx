@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { accountAPI, productAPI, Account, Product } from '../api/client';
 
 export default function AccountsTab() {
@@ -15,6 +15,7 @@ export default function AccountsTab() {
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [formData, setFormData] = useState({
         account_email: '',
+        account_password: '',
         token: '',
         balance: 0,
         status: 'active',
@@ -23,6 +24,7 @@ export default function AccountsTab() {
     const [editFormData, setEditFormData] = useState({
         account_email: '',
         token: '',
+        account_password: '',
         balance: 0,
         used_balance: 0,
         status: 'active',
@@ -66,6 +68,7 @@ export default function AccountsTab() {
         if (!product) {
             return {
                 account_email: '',
+                account_password: '',
                 token: '',
                 balance: 0,
                 status: 'active',
@@ -74,6 +77,7 @@ export default function AccountsTab() {
         }
         return {
             account_email: '',
+            account_password: '',
             token: buildDefaultToken(product.product_code),
             balance: product.default_balance ?? 0,
             status: 'active',
@@ -187,9 +191,12 @@ export default function AccountsTab() {
                 return;
             }
             const selectedProduct = getSelectedProduct(formData.product_id);
-            const normalizedToken = formData.token.trim() || (selectedProduct ? buildDefaultToken(selectedProduct.product_code) : '');
-            if (!normalizedToken) {
-                alert('Token 不能为空');
+            const trimmedPassword = formData.account_password.trim();
+            const normalizedToken = formData.token.trim();
+
+
+            if (!normalizedToken && !trimmedPassword) {
+                alert('Token 或密码必须填写一个');
                 return;
             }
             const balance = Number.isFinite(formData.balance)
@@ -199,12 +206,15 @@ export default function AccountsTab() {
                 alert('请选择状态');
                 return;
             }
-            await accountAPI.create({
+            const payload: Partial<Account> = {
                 ...formData,
                 account_email: formData.account_email.trim(),
-                token: normalizedToken,
                 balance,
-            });
+            };
+            if (normalizedToken) {
+                payload.token = normalizedToken;
+            }
+            await accountAPI.create(payload);
             alert('创建成功');
             setShowModal(false);
             setFormData(buildDefaultFormData(formData.product_id));
@@ -304,14 +314,14 @@ export default function AccountsTab() {
             alert('额度格式错误');
             return;
         }
-        try {
-            await accountAPI.updateBalance(id, newBalance);
-            alert('更新成功');
-            loadAccounts();
-        } catch (error) {
-            console.error('更新失败:', error);
-            alert('更新失败');
-        }
+                    try {
+                await accountAPI.updateBalance(id, newBalance);
+                alert('更新成功');
+                loadAccounts();
+            } catch (error) {
+                console.error('更新失败:', error);
+                alert('更新失败');
+            }
     };
 
     const handleEdit = (account: Account) => {
@@ -319,6 +329,7 @@ export default function AccountsTab() {
         setEditFormData({
             account_email: account.account_email,
             token: account.token || '',
+            account_password: '',
             balance: account.balance,
             used_balance: account.used_balance || 0,
             status: account.status,
@@ -333,12 +344,24 @@ export default function AccountsTab() {
         if (!editingAccount) return;
 
         try {
+            const trimmedPassword = (editFormData.account_password || '').trim();
+            const normalizedToken = (editFormData.token || '').trim();
+            if (!normalizedToken && !trimmedPassword) {
+                alert('Token 或密码必须填写一个');
+                return;
+            }
             // 调用更新 API，同时更新 balance 和 used_balance
-            await accountAPI.updateBalance(
-                editingAccount.id,
-                editFormData.balance,
-                editFormData.used_balance
-            );
+            const payload: any = {
+                status: editFormData.status,
+                balance: editFormData.balance,
+                used_balance: editFormData.used_balance,
+                product_id: editFormData.product_id,
+            };
+            if (editFormData.account_password && editFormData.account_password.trim()) {
+                payload.account_password = editFormData.account_password.trim();
+            }
+            if (normalizedToken) { payload.token = normalizedToken; }
+            await accountAPI.update(editingAccount.id, payload);
 
             alert('更新成功');
             setShowEditModal(false);
@@ -622,6 +645,16 @@ export default function AccountsTab() {
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                                 />
                                 <p className="text-xs text-gray-500 mt-1">可选</p>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">账号密码</label>
+                                <input
+                                    type="password"
+                                    value={formData.account_password}
+                                    onChange={(e) => setFormData({ ...formData, account_password: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">可选</p>
+                            </div>
                             </div>
                             <div>
                                 <div className="flex items-center justify-between mb-1">
@@ -639,7 +672,7 @@ export default function AccountsTab() {
                                     onChange={(e) => setFormData({ ...formData, token: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-xs"
                                     rows={3}
-                                    required
+                                    required={!formData.account_password.trim()}
                                 />
                                 <p className="text-xs text-gray-500 mt-1">默认使用产品前缀-随机32位</p>
                             </div>
@@ -878,19 +911,29 @@ export default function AccountsTab() {
                                     value={editFormData.account_email}
                                     onChange={(e) => setEditFormData({ ...editFormData, account_email: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                    disabled
                                 />
-                                <p className="text-xs text-gray-500 mt-1">邮箱不可编辑</p>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">账号密码</label>
+                                <input
+                                    type="password"
+                                    value={editFormData.account_password}
+                                    onChange={(e) => setEditFormData({ ...editFormData, account_password: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    placeholder="留空表示不修改"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">留空表示不修改</p>
+                            </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Token</label>
                                 <textarea
                                     value={editFormData.token}
+                                    onChange={(e) => setEditFormData({ ...editFormData, token: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-xs bg-gray-50"
                                     rows={3}
-                                    disabled
+                                    required={!editFormData.account_password.trim()}
+
                                 />
-                                <p className="text-xs text-gray-500 mt-1">Token 不可编辑</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">总额度</label>
@@ -983,3 +1026,7 @@ export default function AccountsTab() {
         </div>
     );
 }
+
+
+
+
