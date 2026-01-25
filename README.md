@@ -138,6 +138,7 @@ start.bat
 - `GET /api/admin/accounts` - 获取账号列表
 - `POST /api/admin/accounts` - 创建账号
 - `POST /api/admin/accounts/batch` - 批量创建账号
+- `PUT /api/admin/accounts/:id` - 更新账号（含 use_status、余额等）
 - `PUT /api/admin/accounts/:id/balance` - 更新账号余额
 - `DELETE /api/admin/accounts/:id` - 删除账号
 - `GET /api/admin/usage` - 查询使用量

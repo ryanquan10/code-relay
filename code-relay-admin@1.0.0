@@ -1,6 +1,0 @@
-Building React frontend...
-Frontend build complete!
-Build output is in: web\dist
-
-To build Go backend, run:
-go build -o code-relay.exe .

@@ -1,8 +1,8 @@
 package service
 
 import (
-	"codex-relay/internal/entity"
 	"codex-relay/internal/repository"
+	"codex-relay/pkg/entity"
 	"fmt"
 	"log"
 	"time"

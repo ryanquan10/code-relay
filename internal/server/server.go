@@ -109,9 +109,11 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 
 			// 账号管理
 			admin.GET("/accounts", controller.ListAccounts)
+			admin.GET("/accounts/export", controller.ExportAccounts)
 			admin.GET("/accounts/token/:token", controller.GetAccountByToken)
 			admin.POST("/accounts", controller.CreateAccount)
 			admin.POST("/accounts/batch", controller.BatchCreateAccounts)
+			admin.PUT("/accounts/:id", controller.UpdateAccount)
 			admin.PUT("/accounts/:id/balance", controller.UpdateAccountBalance)
 			admin.DELETE("/accounts/:id", controller.DeleteAccount)
 			admin.POST("/accounts/batch-delete", controller.BatchDeleteAccounts)

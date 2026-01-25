@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { productAPI, Product, ProductSource, sourceAPI, Source } from '../api/client';
 
 type ProductFormState = {
@@ -25,6 +25,7 @@ type ProductFormState = {
   auto_delivery: boolean;
   sort_order: number;
   status: number;
+  platforms_json: string;
 };
 
 const buildDefaultSourceSelection = (availableSources: Source[]): ProductSource[] => {
@@ -72,6 +73,7 @@ const createDefaultFormData = (availableSources: Source[] = []): ProductFormStat
     auto_delivery: false,
     sort_order: 0,
     status: 1,
+    platforms_json: '[]',
   };
 };
 
@@ -164,6 +166,13 @@ export default function ProductsTab() {
         alert('账号供应商权重必须大于 0');
         return;
       }
+      let platformsParsed: any = [];
+      try {
+        platformsParsed = formData.platforms_json.trim() ? JSON.parse(formData.platforms_json) : [];
+      } catch (err) {
+        alert('平台JSON格式错误，请检查');
+        return;
+      }
       const payload: Partial<Product> = {
         product_code: formData.product_code.trim(),
         product_name: formData.product_name.trim(),
@@ -188,6 +197,7 @@ export default function ProductsTab() {
         sort_order: formData.sort_order,
         status: formData.status,
         sources: formData.sources,
+        platforms: platformsParsed,
       };
       if (editingProduct) {
         await productAPI.update(editingProduct.id, payload);
@@ -233,6 +243,7 @@ export default function ProductsTab() {
       auto_delivery: product.auto_delivery,
       sort_order: product.sort_order,
       status: product.status,
+      platforms_json: JSON.stringify((product as any).platforms ?? [], null, 2),
     });
     setShowModal(true);
   };
@@ -830,7 +841,17 @@ export default function ProductsTab() {
                 />
               </div>
 
-              <div className="flex justify-end space-x-3 pt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">平台映射(JSON)</label>
+                <textarea
+                  value={formData.platforms_json}
+                  onChange={(e) => setFormData({ ...formData, platforms_json: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono"
+                  rows={4}
+                  placeholder='[{"platform":"xianyu","product_code":"ABC"},{"platform":"douyin","product_code":"DEF"}]'
+                />
+                  <p className="mt-1 text-xs text-gray-500">填写原生 JSON 数组，例如: {`[{"键":"值"}]`}。保存时将原样提交。</p>
+              </div>              <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
                   onClick={handleCloseModal}
@@ -852,3 +873,5 @@ export default function ProductsTab() {
     </div>
   );
 }
+
+

@@ -8,6 +8,8 @@ require (
 	github.com/spf13/viper v1.19.0
 )
 
+require gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
+
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
@@ -18,7 +20,6 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/gin-contrib/sse v1.0.0 // indirect
-	github.com/gin-contrib/static v1.1.5
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.26.0 // indirect

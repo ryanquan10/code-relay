@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"codex-relay/internal/entity"
 	"codex-relay/internal/mysql"
+	"codex-relay/pkg/entity"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -82,30 +82,30 @@ func CreateProduct(c *gin.Context) {
 	}
 
 	var req struct {
-		ProductCode      string   `json:"product_code" binding:"required"`
-		ProductName      string   `json:"product_name" binding:"required"`
-		AccountType      *string  `json:"account_type"`
-		Category         *string  `json:"category"`
-		Icon             *string  `json:"icon"`
-		ImageURL         *string  `json:"image_url"`
-		DownStreamURL    *string  `json:"down_stream_url"`
-		Description      *string  `json:"description"`
-		Price            *float64 `json:"price" binding:"required"`
-		OriginalPrice    *float64 `json:"original_price"`
-		SalesCount       *int     `json:"sales_count"`
-		ContactInfo      *string  `json:"contact_info"`
-		UsageInstruction *string  `json:"usage_instruction"`
-		ValidityDays     *int     `json:"validity_days"`
-		SharedLimit      *int     `json:"shared_limit"`
+		ProductCode      string                 `json:"product_code" binding:"required"`
+		ProductName      string                 `json:"product_name" binding:"required"`
+		AccountType      *string                `json:"account_type"`
+		Category         *string                `json:"category"`
+		Icon             *string                `json:"icon"`
+		ImageURL         *string                `json:"image_url"`
+		DownStreamURL    *string                `json:"down_stream_url"`
+		Description      *string                `json:"description"`
+		Price            *float64               `json:"price" binding:"required"`
+		OriginalPrice    *float64               `json:"original_price"`
+		SalesCount       *int                   `json:"sales_count"`
+		ContactInfo      *string                `json:"contact_info"`
+		UsageInstruction *string                `json:"usage_instruction"`
+		ValidityDays     *int                   `json:"validity_days"`
+		SharedLimit      *int                   `json:"shared_limit"`
 		Sources          []productSourcePayload `json:"sources" binding:"required"`
-		CostPrice        *float64 `json:"cost_price"`
-		DefaultBalance   *float64 `json:"default_balance"`
-		OriginalBalance  *float64 `json:"original_balance"`
-		Stock            *int     `json:"stock"`
-		AutoDelivery     *bool    `json:"auto_delivery"`
-		SortOrder        *int     `json:"sort_order"`
-		Status           *int     `json:"status"`
-		Version          *int     `json:"version"`
+		CostPrice        *float64               `json:"cost_price"`
+		DefaultBalance   *float64               `json:"default_balance"`
+		OriginalBalance  *float64               `json:"original_balance"`
+		Stock            *int                   `json:"stock"`
+		AutoDelivery     *bool                  `json:"auto_delivery"`
+		SortOrder        *int                   `json:"sort_order"`
+		Status           *int                   `json:"status"`
+		Version          *int                   `json:"version"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -249,30 +249,30 @@ func UpdateProduct(c *gin.Context) {
 	}
 
 	var req struct {
-		ProductCode      *string  `json:"product_code"`
-		ProductName      *string  `json:"product_name"`
-		AccountType      *string  `json:"account_type"`
-		Category         *string  `json:"category"`
-		Icon             *string  `json:"icon"`
-		ImageURL         *string  `json:"image_url"`
-		DownStreamURL    *string  `json:"down_stream_url"`
-		Description      *string  `json:"description"`
-		Price            *float64 `json:"price"`
-		OriginalPrice    *float64 `json:"original_price"`
-		SalesCount       *int     `json:"sales_count"`
-		ContactInfo      *string  `json:"contact_info"`
-		UsageInstruction *string  `json:"usage_instruction"`
-		ValidityDays     *int     `json:"validity_days"`
-		SharedLimit      *int     `json:"shared_limit"`
+		ProductCode      *string                 `json:"product_code"`
+		ProductName      *string                 `json:"product_name"`
+		AccountType      *string                 `json:"account_type"`
+		Category         *string                 `json:"category"`
+		Icon             *string                 `json:"icon"`
+		ImageURL         *string                 `json:"image_url"`
+		DownStreamURL    *string                 `json:"down_stream_url"`
+		Description      *string                 `json:"description"`
+		Price            *float64                `json:"price"`
+		OriginalPrice    *float64                `json:"original_price"`
+		SalesCount       *int                    `json:"sales_count"`
+		ContactInfo      *string                 `json:"contact_info"`
+		UsageInstruction *string                 `json:"usage_instruction"`
+		ValidityDays     *int                    `json:"validity_days"`
+		SharedLimit      *int                    `json:"shared_limit"`
 		Sources          *[]productSourcePayload `json:"sources"`
-		CostPrice        *float64 `json:"cost_price"`
-		DefaultBalance   *float64 `json:"default_balance"`
-		OriginalBalance  *float64 `json:"original_balance"`
-		Stock            *int     `json:"stock"`
-		AutoDelivery     *bool    `json:"auto_delivery"`
-		SortOrder        *int     `json:"sort_order"`
-		Status           *int     `json:"status"`
-		Version          *int     `json:"version"`
+		CostPrice        *float64                `json:"cost_price"`
+		DefaultBalance   *float64                `json:"default_balance"`
+		OriginalBalance  *float64                `json:"original_balance"`
+		Stock            *int                    `json:"stock"`
+		AutoDelivery     *bool                   `json:"auto_delivery"`
+		SortOrder        *int                    `json:"sort_order"`
+		Status           *int                    `json:"status"`
+		Version          *int                    `json:"version"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {

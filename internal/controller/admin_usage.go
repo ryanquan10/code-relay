@@ -1,9 +1,9 @@
 package controller
 
 import (
-	"codex-relay/internal/entity"
 	"codex-relay/internal/mysql"
 	"codex-relay/internal/service"
+	"codex-relay/pkg/entity"
 	"net/http"
 	"time"
 

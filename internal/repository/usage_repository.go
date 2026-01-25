@@ -1,8 +1,8 @@
 package repository
 
 import (
-	"codex-relay/internal/entity"
 	"codex-relay/internal/mysql"
+	"codex-relay/pkg/entity"
 	"fmt"
 	"time"
 

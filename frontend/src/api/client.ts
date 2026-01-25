@@ -92,6 +92,7 @@ export interface Product {
   original_balance: number;
   stock: number;
   version: number;
+  platforms?: any;
   sources?: ProductSource[];
   create_time: string;
   update_time: string;
@@ -120,6 +121,7 @@ export interface Account {
   user_id?: number | null;
   balance: number;
   used_balance?: number;  // 已使用余额
+  use_status: number;
   status: string;
   expire_date?: string | null;
   last_recharge_time?: string | null;
@@ -139,6 +141,10 @@ export const accountAPI = {
   batchDelete: (ids: number[]) => api.post<any, { message: string; count: number }>('/accounts/batch-delete', { ids }),
   updateBalance: (id: number, balance: number, usedBalance?: number) =>
     api.put(`/accounts/${id}/balance`, { balance, used_balance: usedBalance }),
+  exportCsv: (params?: any) => api.get<any, Blob>(
+    '/accounts/export',
+    { params, responseType: "blob" }
+  ),
 };
 
 // 使用量查看
@@ -205,4 +211,10 @@ export const usageDailyAPI = {
       headers: { Authorization: `Bearer ${customerKey}` },
     }),
 };
+
+
+
+
+
+
 

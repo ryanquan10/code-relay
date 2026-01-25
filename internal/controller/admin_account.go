@@ -1,10 +1,11 @@
 package controller
 
 import (
-	"codex-relay/internal/entity"
 	"codex-relay/internal/mysql"
 	"codex-relay/internal/repository"
+	"codex-relay/pkg/entity"
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -24,10 +25,25 @@ func ListAccounts(c *gin.Context) {
 		return
 	}
 
+	productIDStr := strings.TrimSpace(c.Query("product_id"))
 	var accounts []entity.Account
-	if err := db.Find(&accounts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	if productIDStr != "" {
+		pid, err := strconv.ParseInt(productIDStr, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product_id"})
+			return
+		}
+		list, err := repository.NewAccountRepository().GetByProductId(pid)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		accounts = list
+	} else {
+		if err := db.Find(&accounts).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	response := make([]accountResponse, 0, len(accounts))
 	for i := range accounts {
@@ -67,6 +83,7 @@ func CreateAccount(c *gin.Context) {
 		Token           *string    `json:"token"`
 		Balance         *float64   `json:"balance"`
 		UsedBalance     *float64   `json:"used_balance"`
+		UseStatus       *int       `json:"use_status"`
 		Status          string     `json:"status" binding:"required"`
 		ProductID       int64      `json:"product_id" binding:"required"`
 		UserID          *uint64    `json:"user_id"`
@@ -130,12 +147,18 @@ func CreateAccount(c *gin.Context) {
 		usedBalance = *req.UsedBalance
 	}
 
+	useStatus := 0
+	if req.UseStatus != nil {
+		useStatus = *req.UseStatus
+	}
+
 	account := &entity.Account{
 		AccountEmail:    strings.TrimSpace(req.AccountEmail),
 		AccountPassword: normalizeOptionalString(req.AccountPassword),
 		Token:           token,
 		Balance:         balance,
 		UsedBalance:     usedBalance,
+		UseStatus:       useStatus,
 		Status:          strings.TrimSpace(req.Status),
 		ProductID:       req.ProductID,
 		SourceID:        sourceID,
@@ -162,6 +185,7 @@ func BatchCreateAccounts(c *gin.Context) {
 			Token           *string    `json:"token"`
 			Balance         *float64   `json:"balance"`
 			UsedBalance     *float64   `json:"used_balance"`
+			UseStatus       *int       `json:"use_status"`
 			Status          string     `json:"status" binding:"required"`
 			ProductID       int64      `json:"product_id" binding:"required"`
 			UserID          *uint64    `json:"user_id"`
@@ -182,10 +206,9 @@ func BatchCreateAccounts(c *gin.Context) {
 	}
 
 	repo := repository.NewAccountRepository()
+
 	success := 0
 	failed := 0
-	productCache := make(map[int64]*entity.Product)
-	sourceCache := make(map[int64]int64)
 
 	for _, a := range req.Accounts {
 		if strings.TrimSpace(a.Status) == "" {
@@ -193,26 +216,16 @@ func BatchCreateAccounts(c *gin.Context) {
 			continue
 		}
 
-		product, ok := productCache[a.ProductID]
-		if !ok {
-			fetched, err := getProductByID(db, a.ProductID)
-			if err != nil {
-				failed++
-				continue
-			}
-			product = fetched
-			productCache[a.ProductID] = product
+		product, err := getProductByID(db, a.ProductID)
+		if err != nil {
+			failed++
+			continue
 		}
 
-		sourceID, ok := sourceCache[a.ProductID]
-		if !ok {
-			fetchedSourceID, err := getDefaultSourceID(db, a.ProductID)
-			if err != nil {
-				failed++
-				continue
-			}
-			sourceID = fetchedSourceID
-			sourceCache[a.ProductID] = sourceID
+		sourceID, err := getDefaultSourceID(db, product.ID)
+		if err != nil {
+			failed++
+			continue
 		}
 
 		token := normalizeOptionalString(a.Token)
@@ -229,10 +242,13 @@ func BatchCreateAccounts(c *gin.Context) {
 		if a.Balance != nil {
 			balance = *a.Balance
 		}
-
 		usedBalance := 0.0
 		if a.UsedBalance != nil {
 			usedBalance = *a.UsedBalance
+		}
+		useStatus := 0
+		if a.UseStatus != nil {
+			useStatus = *a.UseStatus
 		}
 
 		account := &entity.Account{
@@ -241,6 +257,7 @@ func BatchCreateAccounts(c *gin.Context) {
 			Token:           token,
 			Balance:         balance,
 			UsedBalance:     usedBalance,
+			UseStatus:       useStatus,
 			Status:          strings.TrimSpace(a.Status),
 			ProductID:       a.ProductID,
 			SourceID:        sourceID,
@@ -296,6 +313,78 @@ func UpdateAccountBalance(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "updated"})
 }
 
+// UpdateAccount 通用更新（含 use_status）
+func UpdateAccount(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req struct {
+		AccountEmail    *string    `json:"account_email"`
+		AccountPassword *string    `json:"account_password"`
+		Token           *string    `json:"token"`
+		Balance         *float64   `json:"balance"`
+		UsedBalance     *float64   `json:"used_balance"`
+		Status          *string    `json:"status"`
+		ExpireDate      *time.Time `json:"expire_date"`
+		Remark          *string    `json:"remark"`
+		UseStatus       *int       `json:"use_status"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	repo := repository.NewAccountRepository()
+	account, err := repo.GetById(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if account == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		return
+	}
+
+	if req.AccountEmail != nil {
+		account.AccountEmail = strings.TrimSpace(*req.AccountEmail)
+	}
+	if req.AccountPassword != nil {
+		account.AccountPassword = normalizeOptionalString(req.AccountPassword)
+	}
+	if req.Token != nil {
+		account.Token = normalizeOptionalString(req.Token)
+	}
+	if req.Balance != nil {
+		account.Balance = *req.Balance
+	}
+	if req.UsedBalance != nil {
+		account.UsedBalance = *req.UsedBalance
+	}
+	if req.Status != nil {
+		account.Status = strings.TrimSpace(*req.Status)
+	}
+	if req.ExpireDate != nil {
+		account.ExpireDate = req.ExpireDate
+	}
+	if req.Remark != nil {
+		account.Remark = normalizeOptionalString(req.Remark)
+	}
+	if req.UseStatus != nil {
+		account.UseStatus = *req.UseStatus
+	}
+
+	if err := repo.Update(account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, newAccountResponse(account))
+}
+
 // DeleteAccount 删除账号
 func DeleteAccount(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -349,6 +438,7 @@ type accountResponse struct {
 	SourceID         int64      `json:"source_id"`
 	UserID           *uint64    `json:"user_id"`
 	Status           string     `json:"status"`
+	UseStatus        int        `json:"use_status"`
 	ExpireDate       *time.Time `json:"expire_date"`
 	Balance          float64    `json:"balance"`
 	UsedBalance      float64    `json:"used_balance"`
@@ -368,6 +458,7 @@ func newAccountResponse(account *entity.Account) accountResponse {
 		SourceID:         account.SourceID,
 		UserID:           account.UserID,
 		Status:           account.Status,
+		UseStatus:        account.UseStatus,
 		ExpireDate:       account.ExpireDate,
 		Balance:          account.Balance,
 		UsedBalance:      account.UsedBalance,
@@ -405,4 +496,97 @@ func getDefaultSourceID(db *gorm.DB, productID int64) (int64, error) {
 		return 0, err
 	}
 	return mapping.SourceID, nil
+}
+
+// ExportAccounts 批量导出账号为CSV
+// 支持按 ids（逗号分隔）或按 product_id 筛选；都未提供时导出全部
+func ExportAccounts(c *gin.Context) {
+	db := mysql.DB()
+	if db == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database not initialized"})
+		return
+	}
+
+	idsParam := strings.TrimSpace(c.Query("ids"))
+	productIDStr := strings.TrimSpace(c.Query("product_id"))
+
+	var accounts []entity.Account
+
+	if idsParam != "" {
+		parts := strings.Split(idsParam, ",")
+		ids := make([]uint64, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			id, err := strconv.ParseUint(p, 10, 64)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ids"})
+				return
+			}
+			ids = append(ids, id)
+		}
+		if err := db.Where("id IN ?", ids).Find(&accounts).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	} else if productIDStr != "" {
+		pid, err := strconv.ParseInt(productIDStr, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product_id"})
+			return
+		}
+		if err := db.Where("product_id = ?", pid).Find(&accounts).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	} else {
+		if err := db.Find(&accounts).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	filename := "accounts_" + time.Now().Format("20060102150405") + ".csv"
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	_, _ = c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
+
+	w := csv.NewWriter(c.Writer)
+	defer w.Flush()
+
+	_ = w.Write([]string{
+		"id", "product_id", "account_email", "token", "balance", "used_balance", "status", "use_status", "expire_date", "create_time",
+	})
+
+	for _, a := range accounts {
+		expire := ""
+		if a.ExpireDate != nil {
+			expire = a.ExpireDate.Format(time.RFC3339)
+		}
+		_ = w.Write([]string{
+			strconv.FormatUint(a.ID, 10),
+			strconv.FormatInt(a.ProductID, 10),
+			a.AccountEmail,
+			valueOrEmpty(a.Token),
+			formatFloat(a.Balance),
+			formatFloat(a.UsedBalance),
+			a.Status,
+			strconv.Itoa(a.UseStatus),
+			expire,
+			a.CreateTime.Format(time.RFC3339),
+		})
+	}
+}
+
+func valueOrEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func formatFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', 2, 64)
 }

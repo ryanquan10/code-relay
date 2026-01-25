@@ -1,8 +1,8 @@
 package controller
 
 import (
-	"codex-relay/internal/entity"
 	"codex-relay/internal/mysql"
+	"codex-relay/pkg/entity"
 	"encoding/json"
 	"log"
 	"net/http"

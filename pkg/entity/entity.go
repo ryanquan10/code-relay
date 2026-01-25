@@ -1,7 +1,9 @@
 package entity
 
 import (
+	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -27,37 +29,74 @@ func (AccountSource) TableName() string {
 
 // Product 产品
 type Product struct {
-	ID               int64    `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
-	ProductCode      string   `db:"product_code" json:"product_code" gorm:"type:varchar(100);uniqueIndex;not null"`
-	ProductName      string   `db:"product_name" json:"product_name" gorm:"type:varchar(200);not null"`
-	AccountType      string   `db:"account_type" json:"account_type" gorm:"type:varchar(100)"`
-	Category         *string  `db:"category" json:"category" gorm:"type:varchar(100);index"`
-	Icon             *string  `db:"icon" json:"icon" gorm:"type:varchar(255)"`
-	ImageURL         *string  `db:"image_url" json:"image_url" gorm:"type:varchar(255)"`
-	DownStreamURL    *string  `db:"down_stream_url" json:"down_stream_url" gorm:"type:varchar(255)"`
-	Description      *string  `db:"description" json:"description" gorm:"type:text"`
-	Price            float64  `db:"price" json:"price" gorm:"type:decimal(10,2);default:0"`
-	OriginalPrice    *float64 `db:"original_price" json:"original_price" gorm:"type:decimal(10,2)"`
-	SalesCount       int      `db:"sales_count" json:"sales_count" gorm:"default:0"`
-	ContactInfo      *string  `db:"contact_info" json:"contact_info" gorm:"type:text"`
-	UsageInstruction *string  `db:"usage_instruction" json:"usage_instruction" gorm:"type:text"`
-	ValidityDays     int      `db:"validity_days" json:"validity_days" gorm:"default:9999"`
-	SharedLimit      int      `db:"shared_limit" json:"shared_limit" gorm:"default:0"`
-	CostPrice        float64  `db:"cost_price" json:"cost_price" gorm:"type:decimal(10,2);default:0"`
-	DefaultBalance   float64  `db:"default_balance" json:"default_balance" gorm:"type:decimal(10,2);default:0"`
-	OriginalBalance  float64  `db:"original_balance" json:"original_balance" gorm:"type:decimal(10,2);default:0"`
-	Stock            int      `db:"stock" json:"stock" gorm:"default:0"`
-	AutoDelivery     bool     `db:"auto_delivery" json:"auto_delivery" gorm:"default:false"`
-	SortOrder        int      `db:"sort_order" json:"sort_order" gorm:"default:0"`
-	Status           int      `db:"status" json:"status" gorm:"default:1;index"`
-	Version          int      `db:"version" json:"version" gorm:"default:0"` // 乐观锁：库存
-
-	CreateTime time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
-	UpdateTime time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+	ID               int64         `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	ProductCode      string        `db:"product_code" json:"product_code" gorm:"type:varchar(100);uniqueIndex;not null"`
+	ProductName      string        `db:"product_name" json:"product_name" gorm:"type:varchar(200);not null"`
+	AccountType      string        `db:"account_type" json:"account_type" gorm:"type:varchar(100)"`
+	Category         *string       `db:"category" json:"category" gorm:"type:varchar(100);index"`
+	Icon             *string       `db:"icon" json:"icon" gorm:"type:varchar(255)"`
+	ImageURL         *string       `db:"image_url" json:"image_url" gorm:"type:varchar(255)"`
+	DownStreamURL    *string       `db:"down_stream_url" json:"down_stream_url" gorm:"type:varchar(255)"`
+	Description      *string       `db:"description" json:"description" gorm:"type:text"`
+	Price            float64       `db:"price" json:"price" gorm:"type:decimal(10,2);default:0"`
+	OriginalPrice    *float64      `db:"original_price" json:"original_price" gorm:"type:decimal(10,2)"`
+	SalesCount       int           `db:"sales_count" json:"sales_count" gorm:"default:0"`
+	ContactInfo      *string       `db:"contact_info" json:"contact_info" gorm:"type:text"`
+	UsageInstruction *string       `db:"usage_instruction" json:"usage_instruction" gorm:"type:text"`
+	ValidityDays     int           `db:"validity_days" json:"validity_days" gorm:"default:9999"`
+	SharedLimit      int           `db:"shared_limit" json:"shared_limit" gorm:"default:0"`
+	CostPrice        float64       `db:"cost_price" json:"cost_price" gorm:"type:decimal(10,2);default:0"`
+	DefaultBalance   float64       `db:"default_balance" json:"default_balance" gorm:"type:decimal(10,2);default:0"`
+	OriginalBalance  float64       `db:"original_balance" json:"original_balance" gorm:"type:decimal(10,2);default:0"`
+	Stock            int           `db:"stock" json:"stock" gorm:"default:0"`
+	AutoDelivery     bool          `db:"auto_delivery" json:"auto_delivery" gorm:"default:false"`
+	SortOrder        int           `db:"sort_order" json:"sort_order" gorm:"default:0"`
+	Status           int           `db:"status" json:"status" gorm:"default:1;index"`
+	Platforms        PlatformArray `db:"platforms" json:"platforms" gorm:"type:jsonb;default:'[]'"`
+	Version          int           `db:"version" json:"version" gorm:"default:0"` // 乐观锁：库存
+	CreateTime       time.Time     `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime       time.Time     `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
 
 func (Product) TableName() string {
 	return "product"
+}
+
+// ProductPlatform 产品平台关联
+type ProductPlatform struct {
+	ID          int64     `db:"id" json:"id" gorm:"primaryKey"`
+	ProductCode string    `db:"product_code" json:"product_code" gorm:"index;not null"`    // 商品在平台的Code
+	Platform    string    `db:"platform" json:"platform" gorm:"type:varchar(50);not null"` // xianyu/douyin/self
+	CreateTime  time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime  time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+}
+
+func (ProductPlatform) TableName() string {
+	return "product_platform"
+}
+
+// PlatformArray 平台数组类型，用于存储 Product.Platforms JSON 字段
+type PlatformArray []ProductPlatform
+
+// Scan 实现 sql.Scanner 接口
+func (p *PlatformArray) Scan(value interface{}) error {
+	if value == nil {
+		*p = PlatformArray{}
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal PlatformArray value: %v", value)
+	}
+	return json.Unmarshal(bytes, p)
+}
+
+// Value 实现 driver.Valuer 接口
+func (p PlatformArray) Value() (driver.Value, error) {
+	if len(p) == 0 {
+		return "[]", nil
+	}
+	return json.Marshal(p)
 }
 
 // AccountSourceProcut 账号供应商与产品关系
@@ -90,6 +129,7 @@ type Account struct {
 	LastRechargeTime *time.Time `db:"last_recharge_time" json:"last_recharge_time"`
 	Remark           *string    `db:"remark" json:"remark" gorm:"type:text"`
 	Version          int        `db:"version" json:"version" gorm:"default:0"` // 乐观锁：余额
+	UseStatus        int        `db:"use_status" json:"use_status" gorm:"type:tinyint;default:0;index;comment:'使用状态:0-未使用 1-已使用'"`
 	CreateTime       time.Time  `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
 	UpdateTime       time.Time  `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
