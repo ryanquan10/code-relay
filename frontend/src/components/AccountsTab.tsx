@@ -615,13 +615,13 @@ export default function AccountsTab() {
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {account.start_time ? new Date(account.start_time).toLocaleString(''zh-CN'') : '-'}
+                                        {account.start_time ? new Date(account.start_time).toLocaleString('zh-CN') : '-'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                         {account.expire_days ?? '-'}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {new Date(account.create_time).toLocaleString(''zh-CN'')}
+                                        {new Date(account.create_time).toLocaleString('zh-CN')}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                                         <button
@@ -1059,6 +1059,7 @@ export default function AccountsTab() {
         </div>
     );
 }
+
 
 
 
