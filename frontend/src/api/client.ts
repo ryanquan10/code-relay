@@ -243,3 +243,14 @@ export const errorLogAPI = {
   list: (params?: any) => api.get<any, UpstreamErrorLog[]>('/error-logs', { params }),
 };
 
+
+// 控制台日志（服务器 stdout/SQL/Gin）
+export interface ConsoleLogsResponse {
+  lines: string[];
+}
+
+export const consoleLogAPI = {
+  list: (limit: number = 200) => api.get<any, ConsoleLogsResponse>(
+    '/console-logs', { params: { limit } }
+  ),
+};

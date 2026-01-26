@@ -2,7 +2,10 @@ package mysql
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"codex-relay/config"
+	"codex-relay/internal/logstream"
 )
 
 var db *gorm.DB
@@ -20,12 +24,23 @@ func InitFromConfig(cfg config.DatasourceConfig) error {
 	dsn := convertJdbcUrlToGormDsn(cfg.URL, cfg.Username, cfg.Password)
 
 	// 打印连接信息日志
-	fmt.Printf("[MySQL] JDBC URL: %s\n", cfg.URL)
-	fmt.Printf("[MySQL] Username: %s\n", cfg.Username)
-	fmt.Printf("[MySQL] Generated DSN: %s\n", dsn)
+	log.Printf("[MySQL] JDBC URL: %s", cfg.URL)
+	log.Printf("[MySQL] Username: %s", cfg.Username)
+	log.Printf("[MySQL] Generated DSN: %s", dsn)
+
+	gormLogger := logger.New(
+		log.New(io.MultiWriter(os.Stdout, logstream.Writer()), "\r\n", log.LstdFlags),
+		logger.Config{
+			SlowThreshold:             time.Second,
+			LogLevel:                  logger.Info,
+			IgnoreRecordNotFoundError: true,
+			ParameterizedQueries:      false,
+			Colorful:                  false,
+		},
+	)
 
 	gormConfig := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: gormLogger,
 	}
 
 	var err error
