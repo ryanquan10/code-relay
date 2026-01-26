@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+﻿import { useNavigate } from 'react-router-dom';
 
 interface SidebarProps {
   activeMenu: string;
@@ -13,6 +13,7 @@ export default function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
     { id: 'products', label: '产品管理', icon: '🛍️' },
     { id: 'accounts', label: '账号管理', icon: '👤' },
     { id: 'usage', label: '使用量查看', icon: '📊' },
+    { id: 'error-logs', label: '错误日志', icon: '🚨' },
   ];
 
   const handleLogout = () => {

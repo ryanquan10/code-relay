@@ -205,7 +205,7 @@ func (c *codexRelay) setupProxy(config RelayConfig) error {
 		// 统计请求流量 (上行)
 		if req.Body != nil && req.Body != http.NoBody && customerToken != "" {
 			counter := getOrCreateCounter(customerToken)
-			req.Body = service.NewCountingReadCloser(req.Body, counter)
+			req.Body = service.NewCountingReadCloser(req.Body, counter, "in")
 		}
 	}
 
@@ -226,7 +226,7 @@ func (c *codexRelay) setupProxy(config RelayConfig) error {
 		// 统计响应流量 (下行)
 		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
 			counter := getOrCreateCounter(customerToken)
-			resp.Body = service.NewCountingReadCloser(resp.Body, counter)
+			resp.Body = service.NewCountingReadCloser(resp.Body, counter, "out")
 		}
 
 		log.Printf("[Codex] 收到响应: %s %d %s [用户: %s]",

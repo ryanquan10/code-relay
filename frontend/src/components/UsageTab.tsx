@@ -184,7 +184,7 @@ export default function UsageTab() {
               <div className="font-medium">每日统计</div>
               {dailySummary && (
                 <div className="text-sm text-gray-600">
-                  合计 {dailySummary.days} 天，消费 ¥{dailySummary.total_consume.toFixed(4)}（{dailySummary.total_records} 条）
+                  合计 {dailySummary.days} 天，消费 ${dailySummary.total_consume.toFixed(4)}（{dailySummary.total_records} 条）
                 </div>
               )}
             </div>
@@ -194,7 +194,7 @@ export default function UsageTab() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">日期</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">消费(元)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">消费(USD)</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">记录数</th>
                 </tr>
               </thead>
@@ -202,7 +202,7 @@ export default function UsageTab() {
                 {dailyUsages.map((d) => (
                   <tr key={d.date} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{d.date}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">¥{d.total_consume.toFixed(4)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">${d.total_consume.toFixed(4)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{d.record_count}</td>
                   </tr>
                 ))}
@@ -278,6 +278,8 @@ export default function UsageTab() {
     </div>
   );
 }
+
+
 
 
 

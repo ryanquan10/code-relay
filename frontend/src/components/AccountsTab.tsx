@@ -477,7 +477,7 @@ export default function AccountsTab() {
                 </div>
             </div>
             <div>
-                1000 tokens → 0.01 元。
+                1000 tokens ≈ $0.0053（近似）。
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -1036,6 +1036,8 @@ export default function AccountsTab() {
         </div>
     );
 }
+
+
 
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
@@ -6,6 +6,7 @@ import SourcesTab from '../components/SourcesTab';
 import ProductsTab from '../components/ProductsTab';
 import AccountsTab from '../components/AccountsTab';
 import UsageTab from '../components/UsageTab';
+import ErrorLogTab from '../components/ErrorLogTab';
 
 type MenuConfig = {
   title: string;
@@ -17,6 +18,7 @@ const menuConfig: Record<string, MenuConfig> = {
   products: { title: '产品管理', component: ProductsTab },
   accounts: { title: '账号管理', component: AccountsTab },
   usage: { title: '使用量查看', component: UsageTab },
+  'error-logs': { title: '错误日志', component: ErrorLogTab },
 };
 
 export default function AdminDashboard() {
@@ -45,9 +47,9 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="text-gray-600">加载中...</div>
-        </div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600">加载中...</div>
+      </div>
     );
   }
 
@@ -64,14 +66,14 @@ export default function AdminDashboard() {
   };
 
   return (
-      <div className="flex h-screen bg-gray-100">
-        <Sidebar activeMenu={tab} onMenuChange={handleMenuChange} />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Header title={current.title} />
-          <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-            <CurrentComponent />
-          </div>
+    <div className="flex h-screen bg-gray-100">
+      <Sidebar activeMenu={tab} onMenuChange={handleMenuChange} />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Header title={current.title} />
+        <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+          <CurrentComponent />
         </div>
       </div>
+    </div>
   );
 }
