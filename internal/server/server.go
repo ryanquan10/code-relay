@@ -4,10 +4,12 @@ import (
 	"codex-relay/client"
 	"codex-relay/config"
 	"codex-relay/internal/controller"
+	"codex-relay/internal/logstream"
 	"codex-relay/internal/middleware"
 	"context"
 	"embed"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -39,6 +41,12 @@ func serveIndex(c *gin.Context, frontendFS embed.FS) {
 }
 
 func New(cfg config.Config, frontendFS embed.FS) *Server {
+	// Tee Gin and std logs into in-memory ring for console streaming
+	w := logstream.Writer()
+	gin.DefaultWriter = io.MultiWriter(gin.DefaultWriter, w)
+	gin.DefaultErrorWriter = io.MultiWriter(gin.DefaultErrorWriter, w)
+	log.SetOutput(io.MultiWriter(os.Stdout, w))
+
 	engine := gin.New()
 	engine.Use(gin.Logger(), gin.Recovery())
 
@@ -122,6 +130,8 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			admin.GET("/usage", controller.ListUsages)
 			admin.POST("/usage/query", controller.QueryUsageByToken)
 			admin.GET("/usage/stats", controller.GetUsageStats)
+			// 控制台日志（最近 N 行）
+			admin.GET("/console-logs", controller.ListConsoleLogs)
 		}
 	}
 

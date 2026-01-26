@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
+import Guide from './pages/Guide';
 
 function App() {
     return (
@@ -11,6 +12,9 @@ function App() {
 
                 {/* 登录页 */}
                 <Route path="/login" element={<Login />} />
+
+                {/* 教程页（公开访问） */}
+                <Route path="/guide" element={<Guide />} />
 
                 {/* /admin 重定向到 /admin/sources */}
                 <Route path="/admin" element={<Navigate to="/admin/sources" replace />} />

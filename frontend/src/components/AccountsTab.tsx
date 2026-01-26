@@ -362,6 +362,7 @@ export default function AccountsTab() {
                 status: editFormData.status,
                 balance: editFormData.balance,
                 used_balance: editFormData.used_balance,
+                use_status: editFormData.use_status,
                 product_id: editFormData.product_id,
                 token: normalizedToken,  // 即使是空也要更新
                 start_time: editFormData.start_time ? new Date(editFormData.start_time).toISOString() : null,
@@ -1014,10 +1015,15 @@ export default function AccountsTab() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">使用状态</label>
-                                <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
-                                    {editFormData.use_status === 0 ? '未使用' : '已使用'}
-                                </div>
-                                <p className="text-xs text-gray-500 mt-1">使用状态不可编辑</p>
+<select
+    value={editFormData.use_status}
+    onChange={(e) => setEditFormData({ ...editFormData, use_status: Number(e.target.value) })}
+    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+    required
+>
+    <option value={0}>未使用</option>
+    <option value={1}>已使用</option>
+</select>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
@@ -1059,6 +1065,7 @@ export default function AccountsTab() {
         </div>
     );
 }
+
 
 
 
