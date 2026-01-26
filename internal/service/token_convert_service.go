@@ -74,6 +74,16 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 		return nil, fmt.Errorf("insufficient balance")
 	}
 
+	// 过期检查：如果 StartTime 不为空，检查是否已过期
+	if account.StartTime != nil {
+		expireTime := account.StartTime.Add(time.Duration(account.ExpireDays) * 24 * time.Hour)
+		if time.Now().After(expireTime) {
+			log.Printf("[TokenConvert] 账号已过期 [ID: %d, StartTime: %s, ExpireDays: %d, ExpireTime: %s]",
+				account.ID, account.StartTime.Format("2006-01-02 15:04:05"), account.ExpireDays, expireTime.Format("2006-01-02 15:04:05"))
+			return nil, fmt.Errorf("account has expired")
+		}
+	}
+
 	// 2. 根据 ProductID 查询所有可用的上游源（按优先级排序）
 	sources, err := s.sourceProductRepo.GetSourcesByProductID(account.ProductID)
 	if err != nil {

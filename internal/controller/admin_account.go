@@ -627,6 +627,11 @@ func UpdateAccount(c *gin.Context) {
 	}
 	if req.UseStatus != nil {
 		account.UseStatus = *req.UseStatus
+		// 当 UseStatus 改变为 1（已使用）时，更新 StartTime 为当前时间
+		if *req.UseStatus == 1 && account.StartTime == nil {
+			now := time.Now()
+			account.StartTime = &now
+		}
 	}
 
 	if req.ProductID != nil && account.ProductID != *req.ProductID {

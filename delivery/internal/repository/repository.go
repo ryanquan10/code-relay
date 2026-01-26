@@ -3,6 +3,7 @@ package repository
 import (
 	"codex-relay/pkg/entity"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -67,9 +68,19 @@ func (r *DeliveryRepository) UpdateAccountUseStatus(accountID uint64, useStatus 
 		return fmt.Errorf("database connection is not initialized")
 	}
 
+	updates := map[string]interface{}{
+		"use_status": useStatus,
+	}
+
+	// 当 useStatus 设置为 1（已使用）时，更新 StartTime 为当前时间
+	if useStatus == 1 {
+		now := time.Now()
+		updates["start_time"] = now
+	}
+
 	err := r.db.Model(&entity.Account{}).
 		Where("id = ?", accountID).
-		Update("use_status", useStatus).Error
+		Updates(updates).Error
 
 	if err != nil {
 		return fmt.Errorf("failed to update use_status for account %d: %w", accountID, err)

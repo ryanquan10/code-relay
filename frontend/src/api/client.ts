@@ -121,6 +121,8 @@ export interface Account {
   user_id?: number | null;
   balance: number;
   used_balance?: number;  // 已使用余额
+  start_time?: string | null;
+  expire_days?: number;
   use_status: number;
   status: string;
   expire_date?: string | null;
@@ -240,3 +242,4 @@ export interface UpstreamErrorLog {
 export const errorLogAPI = {
   list: (params?: any) => api.get<any, UpstreamErrorLog[]>('/error-logs', { params }),
 };
+

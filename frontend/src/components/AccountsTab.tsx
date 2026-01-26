@@ -30,6 +30,8 @@ export default function AccountsTab() {
         status: 'active',
         product_id: 0,
         use_status: 0,
+        start_time: '',
+        expire_days: 1,
     });
     const [batchDefaults, setBatchDefaults] = useState({
         product_id: 0,
@@ -321,7 +323,12 @@ export default function AccountsTab() {
                 alert('更新失败');
             }
     };
-
+    const toDatetimeLocal = (s?: string | null) => {
+        if (!s) return '';
+        const d = new Date(s);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
     const handleEdit = (account: Account) => {
         setEditingAccount(account);
         setEditFormData({
@@ -333,6 +340,8 @@ export default function AccountsTab() {
             status: account.status,
             product_id: account.product_id,
             use_status: account.use_status || 0,
+            start_time: account.start_time ? toDatetimeLocal(account.start_time) : '',
+            expire_days: account.expire_days ?? 1,
         });
         setShowEditModal(true);
     };
@@ -355,6 +364,8 @@ export default function AccountsTab() {
                 used_balance: editFormData.used_balance,
                 product_id: editFormData.product_id,
                 token: normalizedToken,  // 即使是空也要更新
+                start_time: editFormData.start_time ? new Date(editFormData.start_time).toISOString() : null,
+                expire_days: editFormData.expire_days,
             };
             if (editFormData.account_password && editFormData.account_password.trim()) {
                 payload.account_password = editFormData.account_password.trim();
@@ -524,6 +535,12 @@ export default function AccountsTab() {
                                 使用状态
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                开始时间
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                到期天数
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 创建时间
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -534,7 +551,7 @@ export default function AccountsTab() {
                         <tbody className="bg-white divide-y divide-gray-200">
                         {accounts.length === 0 ? (
                             <tr>
-                                <td colSpan={13} className="px-6 py-8 text-center text-gray-500">
+                                <td colSpan={15} className="px-6 py-8 text-center text-gray-500">
                                     暂无数据
                                 </td>
                             </tr>
@@ -598,7 +615,13 @@ export default function AccountsTab() {
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {new Date(account.create_time).toLocaleString('zh-CN')}
+                                        {account.start_time ? new Date(account.start_time).toLocaleString(''zh-CN'') : '-'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {account.expire_days ?? '-'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {new Date(account.create_time).toLocaleString(''zh-CN'')}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                                         <button
@@ -1036,6 +1059,12 @@ export default function AccountsTab() {
         </div>
     );
 }
+
+
+
+
+
+
 
 
 

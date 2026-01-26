@@ -127,6 +127,8 @@ type Account struct {
 	Remark           *string    `db:"remark" json:"remark" gorm:"type:text"`
 	Version          int        `db:"version" json:"version" gorm:"default:0"` // 乐观锁：余额
 	UseStatus        int        `db:"use_status" json:"use_status" gorm:"type:tinyint;default:0;index;comment:'使用状态:0-未使用 1-已使用'"`
+	StartTime        *time.Time `db:"start_time" json:"start_time" gorm:"index;comment:'开始使用时间'"`
+	ExpireDays       int        `db:"expire_days" json:"expire_days" gorm:"default:1;comment:'到期天数'"`
 	CreateTime       time.Time  `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
 	UpdateTime       time.Time  `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
 }
