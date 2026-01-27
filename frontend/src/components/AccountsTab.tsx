@@ -19,6 +19,7 @@ export default function AccountsTab() {
         token: '',
         balance: 0,
         status: 'active',
+        use_status: 0,
         product_id: 0,
     });
     const [editFormData, setEditFormData] = useState({
@@ -28,14 +29,15 @@ export default function AccountsTab() {
         balance: 0,
         used_balance: 0,
         status: 'active',
-        product_id: 0,
         use_status: 0,
+        product_id: 0,
         start_time: '',
         expire_days: 1,
     });
     const [batchDefaults, setBatchDefaults] = useState({
         product_id: 0,
         status: 'active',
+        use_status: 0,
     });
     const [batchText, setBatchText] = useState('');
     const [batchFieldKeys, setBatchFieldKeys] = useState('account_email,account_password');
@@ -75,7 +77,8 @@ export default function AccountsTab() {
                 token: '',
                 balance: 0,
                 status: 'active',
-                product_id: productId ?? 0,
+        use_status: 0,
+        product_id: productId ?? 0,
             };
         }
         return {
@@ -84,7 +87,8 @@ export default function AccountsTab() {
             token: buildDefaultToken(product.product_code),
             balance: product.default_balance ?? 0,
             status: 'active',
-            product_id: product.id,
+        use_status: 0,
+        product_id: product.id,
         };
     };
 
@@ -214,6 +218,7 @@ export default function AccountsTab() {
                 balance,
                 status: formData.status,
                 product_id: formData.product_id,
+                use_status: formData.use_status,
             };
             if (normalizedToken) {
                 payload.token = normalizedToken;
@@ -253,6 +258,7 @@ export default function AccountsTab() {
             field_keys: fieldKeys.length > 0 ? fieldKeys : ['account_email', 'account_password'],
             product_id: batchDefaults.product_id,
             status: batchDefaults.status || 'active',
+            use_status: batchDefaults.use_status,
         };
 
         const result = await accountAPI.batchCreate(payload as any);
@@ -281,6 +287,7 @@ export default function AccountsTab() {
             const accounts = Array.from({ length: count }, () => ({
                 status: batchDefaults.status,
                 product_id: batchDefaults.product_id,
+                use_status: batchDefaults.use_status,
             }));
             const result = await accountAPI.batchCreate(accounts);
             alert(`批量新增完成！成功: ${result.success}, 失败: ${result.failed}`);
@@ -725,7 +732,19 @@ export default function AccountsTab() {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">使用状态</label>
+<select
+    value={formData.use_status}
+    onChange={(e) => setFormData({ ...formData, use_status: Number(e.target.value) })}
+    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+    required
+>
+    <option value={0}>未使用</option>
+    <option value={1}>已使用</option>
+</select>
+</div>
+<div>
+<label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
                                 <select
                                     value={formData.product_id || ''}
                                     onChange={(e) => handleProductChange(Number(e.target.value))}
@@ -804,7 +823,18 @@ export default function AccountsTab() {
                                     onChange={(e) => setBatchCount(e.target.value)}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                                 />
-                            </div>
+                            </div><div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">使用状态</label>
+  <select
+    value={batchDefaults.use_status}
+    onChange={(e) => setBatchDefaults({ ...batchDefaults, use_status: Number(e.target.value) })}
+    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+    required
+  >
+    <option value={0}>未使用</option>
+    <option value={1}>已使用</option>
+  </select>
+</div>
                         </div>
                         <div className="flex justify-end space-x-3">
                             <button
@@ -876,7 +906,18 @@ export default function AccountsTab() {
                                     <option value="active">正常</option>
                                     <option value="inactive">禁用</option>
                                 </select>
-                            </div>
+                            </div><div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">默认使用状态</label>
+  <select
+    value={batchDefaults.use_status}
+    onChange={(e) => setBatchDefaults({ ...batchDefaults, use_status: Number(e.target.value) })}
+    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+    required
+  >
+    <option value={0}>未使用</option>
+    <option value={1}>已使用</option>
+  </select>
+</div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">数量</label>
                                 <input
@@ -1065,6 +1106,10 @@ export default function AccountsTab() {
         </div>
     );
 }
+
+
+
+
 
 
 

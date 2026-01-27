@@ -230,7 +230,133 @@ requires_openai_auth = true`}</code></pre>
             <li>VS Code：安装官方插件，按上方配置即可。</li>
             <li>Cherry：已兼容老版 <code>/v1/chat/completions</code>，可供 Cherry / Roo / Kilo 调用。</li>
           </ul>
-        </section>
+        
+          <h3 className="text-xl font-semibold mt-4 mb-2">2.4 命令白名单（可选，推荐）</h3>
+          <p className="text-gray-700">Windows 用户：编辑/创建 <code>C:\Users\quanliangwei\.codex\rules\default.rules</code>，将以下规则追加到文件末尾：</p>
+          <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded overflow-auto"><code>{`# 通用读取与搜索命令（最核心，覆盖大部分日常操作）
+prefix_rule(pattern=["powershell.exe", "-Command", "rg"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Select-String"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Get-ChildItem"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Get-Content"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "sed -n"], decision="allow")
+
+# 通用行号范围打印（常见于查看文件片段）
+prefix_rule(pattern=["powershell.exe", "-Command", "$start="], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "for($i="], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "$lines["], decision="allow")  # 数组索引访问
+
+# 通用内容替换与修改（谨慎使用，允许常见替换操作）
+prefix_rule(pattern=["powershell.exe", "-Command", "-replace"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Set-Content -Path"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Set-Content -Value"], decision="allow")
+
+# git 常用查看命令
+prefix_rule(pattern=["powershell.exe", "-Command", "git status"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "git diff"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "git log"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "git show"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "git grep"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "git ls-files"], decision="allow")
+
+# 打开文件夹或编辑器（通用）
+prefix_rule(pattern=["powershell.exe", "-Command", "code "], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "explorer.exe"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Start-Process explorer.exe"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Start-Process -FilePath explorer.exe"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "cmd /c start"], decision="allow")
+
+# 其他常用命令
+prefix_rule(pattern=["powershell.exe", "-Command", "go build"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "go mod tidy"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "cmd /c dir"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "cmd /c type"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "cmd /c findstr"], decision="allow")
+
+# 允许检查 rg 是否存在（常见条件判断）
+prefix_rule(pattern=["powershell.exe", "-Command", "if (Get-Command rg"], decision="allow")
+
+# 允许列出当前目录或递归文件列表（不带具体路径）
+prefix_rule(pattern=["powershell.exe", "-Command", "Get-ChildItem -Recurse"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Get-ChildItem -Force"], decision="allow")
+prefix_rule(pattern=["powershell.exe", "-Command", "Select-String -Path"], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "Select-String -LiteralPath"], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$content = Get-Content -Path"], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$content= Get-Content -Path"], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$content = Get-Content -LiteralPath"], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$content= Get-Content -LiteralPath"], decision="allow")
+
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$p ="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$p="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$path ="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$path="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$c ="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$c="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$ $p ="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$ $p="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$ $path ="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$ $path="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$ $c ="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$ $c="], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command"], decision="allow")
+
+prefix_rule(pattern=["powershell", "-Command"], decision="allow")
+
+prefix_rule(pattern=["pwsh.exe", "-Command"], decision="allow")
+
+
+prefix_rule(pattern=["powershell.exe"], decision="allow")
+
+prefix_rule(pattern=["powershell"], decision="allow")
+
+prefix_rule(pattern=["pwsh.exe"], decision="allow")
+
+prefix_rule(pattern=["cmd"], decision="allow")
+
+prefix_rule(pattern=["cmd.exe"], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$ "], decision="allow")
+
+prefix_rule(pattern=["powershell.exe", "-Command", "$"], decision="allow")
+
+prefix_rule(pattern=["powershell", "-Command", "$ "], decision="allow")
+
+prefix_rule(pattern=["powershell", "-Command", "$"], decision="allow")
+
+prefix_rule(pattern=["pwsh.exe", "-Command", "$ "], decision="allow")
+
+prefix_rule(pattern=["pwsh.exe", "-Command", "$"], decision="allow")
+
+
+prefix_rule(pattern=["rg"], decision="allow")
+
+prefix_rule(pattern=["$ "], decision="allow")
+
+prefix_rule(pattern=["$"], decision="allow")
+
+prefix_rule(pattern=["Select-String"], decision="allow")
+
+prefix_rule(pattern=["Get-Content"], decision="allow")
+
+prefix_rule(pattern=["Set-Content"], decision="allow")
+`}</code></pre></section>
 
         <section className="mt-12">
           <h2 className="text-2xl font-semibold mb-3">三、Gemini CLI 安装教程</h2>
@@ -387,3 +513,4 @@ git worktree remove ../project-feature-a`}</code></pre>
     </div>
   );
 }
+

@@ -1,0 +1,221 @@
+package service
+
+import (
+	"fmt"
+	"io"
+	"log"
+)
+
+// 本文件为 Claude 专用流量与计费封装，基于 Anthropic 官方定价实现语义化接口
+
+// ClaudeModel 定义 Claude 模型类型
+type ClaudeModel string
+
+const (
+	ClaudeModelHaiku45  ClaudeModel = "haiku-4.5"  // Claude Haiku 4.5
+	ClaudeModelSonnet45 ClaudeModel = "sonnet-4.5" // Claude Sonnet 4.5
+	ClaudeModelOpus45   ClaudeModel = "opus-4.5"   // Claude Opus 4.5
+)
+
+// ClaudePricingConfig Claude 计费配置
+type ClaudePricingConfig struct {
+	Model          ClaudeModel // 模型类型
+	UseBatchAPI    bool        // 是否使用 Batch API（享受 50% 折扣）
+	CachedHitRatio float64     // 缓存命中率（0.0-1.0）
+	InputRatio     float64     // 总 tokens 中输入占比（默认 0.70）
+	OutputRatio    float64     // 总 tokens 中输出占比（默认 0.30）
+}
+
+// DefaultClaudePricingConfig 返回默认配置（Sonnet 4.5，不使用 Batch API，10% 缓存命中）
+func DefaultClaudePricingConfig() ClaudePricingConfig {
+	return ClaudePricingConfig{
+		Model:          ClaudeModelSonnet45,
+		UseBatchAPI:    false,
+		CachedHitRatio: 0.10,
+		InputRatio:     0.70,
+		OutputRatio:    0.30,
+	}
+}
+
+// NewClaudeTrafficCounter 初始化 Claude 流量计数器（复用通用实现）
+func NewClaudeTrafficCounter(customerToken string) *TrafficCounter {
+	return NewTrafficCounter(customerToken)
+}
+
+// NewClaudeCountingReadCloser 包装 io.ReadCloser，统计 Claude 流量（方向："in"/"out"）
+func NewClaudeCountingReadCloser(r io.ReadCloser, counter *TrafficCounter, dir string) io.ReadCloser {
+	return NewCountingReadCloser(r, counter, dir)
+}
+
+// SendClaudeTokenUsageToStreamWithIO 发送 Claude token 使用量（含方向）到 Redis Stream
+func SendClaudeTokenUsageToStreamWithIO(customerToken string, tokens uint64, inTokens uint64, outTokens uint64) error {
+	return SendTokenUsageToStreamWithIO(customerToken, tokens, inTokens, outTokens)
+}
+
+// claudePricing Claude 定价结构（内部使用）
+type claudePricing struct {
+	InputPerM       float64 // 标准输入价格（每百万 tokens）
+	OutputPerM      float64 // 输出价格（每百万 tokens）
+	CachedInputPerM float64 // 缓存读取价格（每百万 tokens）
+}
+
+// getClaudePricing 获取 Claude 定价（支持 Batch API 折扣）
+// 定价规则:
+// - Haiku 4.5: 输入 $1/M, 输出 $5/M, 缓存 $0.10/M
+// - Sonnet 4.5: 输入 $3/M, 输出 $15/M, 缓存 $0.30/M
+// - Opus 4.5: 输入 $5/M, 输出 $25/M, 缓存 $0.50/M (Opus = 5×Haiku)
+// - 缓存读取享受 10 倍折扣
+// - Batch API 享受 50% 折扣
+func getClaudePricing(model ClaudeModel, useBatchAPI bool) claudePricing {
+	var prices claudePricing
+
+	switch model {
+	case ClaudeModelHaiku45:
+		// Claude Haiku 4.5 定价（最经济）
+		prices = claudePricing{
+			InputPerM:       1.00, // $1 / M input
+			OutputPerM:      5.00, // $5 / M output
+			CachedInputPerM: 0.10, // $0.10 / M cached read (10倍折扣)
+		}
+	case ClaudeModelSonnet45:
+		// Claude Sonnet 4.5 定价（平衡）
+		prices = claudePricing{
+			InputPerM:       3.00,  // $3 / M input
+			OutputPerM:      15.00, // $15 / M output
+			CachedInputPerM: 0.30,  // $0.30 / M cached read (10倍折扣)
+		}
+	case ClaudeModelOpus45:
+		// Claude Opus 4.5 定价（最强大，价格是 Haiku 的 5 倍）
+		prices = claudePricing{
+			InputPerM:       5.00,  // $5 / M input (5×Haiku)
+			OutputPerM:      25.00, // $25 / M output (5×Haiku)
+			CachedInputPerM: 0.50,  // $0.50 / M cached read (10倍折扣)
+		}
+	default:
+		// 默认回退到 Sonnet 4.5
+		prices = claudePricing{
+			InputPerM:       3.00,
+			OutputPerM:      15.00,
+			CachedInputPerM: 0.30,
+		}
+	}
+
+	// Batch API 50% 折扣（所有价格减半）
+	if useBatchAPI {
+		prices.InputPerM *= 0.5       // 例如 Opus: $5 → $2.50
+		prices.OutputPerM *= 0.5      // 例如 Opus: $25 → $12.50
+		prices.CachedInputPerM *= 0.5 // 例如 Opus: $0.50 → $0.25
+	}
+
+	return prices
+}
+
+// ClaudeTokensToConsumeByIOWithConfig 按输入/输出分别计费（支持自定义配置）
+func ClaudeTokensToConsumeByIOWithConfig(inTokens uint64, outTokens uint64, config ClaudePricingConfig) float64 {
+	if inTokens == 0 && outTokens == 0 {
+		return 0
+	}
+
+	prices := getClaudePricing(config.Model, config.UseBatchAPI)
+
+	// 计算缓存命中部分
+	cachedInputTokens := uint64(float64(inTokens) * config.CachedHitRatio)
+	normalInputTokens := inTokens - cachedInputTokens
+
+	inputCost := (float64(normalInputTokens)*prices.InputPerM + float64(cachedInputTokens)*prices.CachedInputPerM) / 1_000_000.0
+	outputCost := float64(outTokens) * prices.OutputPerM / 1_000_000.0
+
+	return inputCost + outputCost
+}
+
+// ClaudeTokensToConsumeByIO 计算 Claude 的计费（按输入/输出，使用默认配置）
+func ClaudeTokensToConsumeByIO(inTokens uint64, outTokens uint64) float64 {
+	return ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, DefaultClaudePricingConfig())
+}
+
+// ClaudeTokensToConsumeWithConfig 按总 tokens 计费（按比例拆分输入/输出，支持自定义配置）
+func ClaudeTokensToConsumeWithConfig(tokens uint64, config ClaudePricingConfig) float64 {
+	if tokens == 0 {
+		return 0
+	}
+
+	inTokens := uint64(float64(tokens) * config.InputRatio)
+	outTokens := uint64(float64(tokens) * config.OutputRatio)
+
+	return ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, config)
+}
+
+// ClaudeTokensToConsume 计算 Claude 的计费（总 tokens，使用默认配置）
+func ClaudeTokensToConsume(tokens uint64) float64 {
+	return ClaudeTokensToConsumeWithConfig(tokens, DefaultClaudePricingConfig())
+}
+
+// ClaudeHaikuTokensToConsumeByIO Haiku 4.5 专用计费（按输入/输出）
+func ClaudeHaikuTokensToConsumeByIO(inTokens uint64, outTokens uint64) float64 {
+	config := DefaultClaudePricingConfig()
+	config.Model = ClaudeModelHaiku45
+	return ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, config)
+}
+
+// ClaudeSonnetTokensToConsumeByIO Sonnet 4.5 专用计费（按输入/输出）
+func ClaudeSonnetTokensToConsumeByIO(inTokens uint64, outTokens uint64) float64 {
+	config := DefaultClaudePricingConfig()
+	config.Model = ClaudeModelSonnet45
+	return ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, config)
+}
+
+// ClaudeOpusTokensToConsumeByIO Opus 4.5 专用计费（按输入/输出）
+// 定价: 输入 $5/M, 输出 $25/M, 缓存 $0.50/M
+func ClaudeOpusTokensToConsumeByIO(inTokens uint64, outTokens uint64) float64 {
+	config := DefaultClaudePricingConfig()
+	config.Model = ClaudeModelOpus45
+	return ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, config)
+}
+
+// ========== Batch API 专用计费函数（享受 50% 折扣）==========
+
+// ClaudeBatchTokensToConsumeByIO Batch API 专用计费（按输入/输出，50% 折扣）
+func ClaudeBatchTokensToConsumeByIO(inTokens uint64, outTokens uint64, model ClaudeModel) float64 {
+	config := DefaultClaudePricingConfig()
+	config.Model = model
+	config.UseBatchAPI = true
+	return ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, config)
+}
+
+// ClaudeHaikuBatchTokensToConsumeByIO Haiku 4.5 Batch API 计费
+// 定价: 输入 $0.50/M, 输出 $2.50/M, 缓存 $0.05/M
+func ClaudeHaikuBatchTokensToConsumeByIO(inTokens uint64, outTokens uint64) float64 {
+	return ClaudeBatchTokensToConsumeByIO(inTokens, outTokens, ClaudeModelHaiku45)
+}
+
+// ClaudeSonnetBatchTokensToConsumeByIO Sonnet 4.5 Batch API 计费
+// 定价: 输入 $1.50/M, 输出 $7.50/M, 缓存 $0.15/M
+func ClaudeSonnetBatchTokensToConsumeByIO(inTokens uint64, outTokens uint64) float64 {
+	return ClaudeBatchTokensToConsumeByIO(inTokens, outTokens, ClaudeModelSonnet45)
+}
+
+// ClaudeOpusBatchTokensToConsumeByIO Opus 4.5 Batch API 计费
+// 定价: 输入 $2.50/M, 输出 $12.50/M, 缓存 $0.25/M
+func ClaudeOpusBatchTokensToConsumeByIO(inTokens uint64, outTokens uint64) float64 {
+	return ClaudeBatchTokensToConsumeByIO(inTokens, outTokens, ClaudeModelOpus45)
+}
+
+// WriteClaudeToMySQL 写入 MySQL（Claude 定价）
+// 根据是否提供 in/out 拆分来计算更精确的消费金额
+func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, hash string) error {
+	var consume float64
+	if inTokens > 0 || outTokens > 0 {
+		consume = ClaudeTokensToConsumeByIO(inTokens, outTokens)
+	} else {
+		consume = ClaudeTokensToConsume(tokens)
+	}
+
+	usageService := NewUsageService()
+	if err := usageService.RecordTokenUsage(customerToken, tokens, consume); err != nil {
+		return fmt.Errorf("failed to record token usage: %w", err)
+	}
+
+	log.Printf("[MySQL/Claude] 写入成功: token=%s, tokens=%d, consume=%.6f (USD), in=%d, out=%d, hash=%s",
+		maskKey(customerToken), tokens, consume, inTokens, outTokens, hash)
+	return nil
+}
