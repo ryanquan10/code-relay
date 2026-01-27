@@ -79,22 +79,28 @@ func UpdateIP(c *gin.Context) {
 		return
 	}
 
+	// 如果 IP 未变化，但后端不健康，则按上传 IP 强制重连
 	if req.IP == oldIP {
-		log.Printf("✅ IP 未变化: %s，跳过重连", req.IP)
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "IP 未变化，无需更新",
-			"data": gin.H{
-				"ip":            req.IP,
-				"redis_updated": false,
-				"mysql_updated": false,
-				"action":        "noop",
-			},
-		})
-		return
+		redisHealthy := testRedisConnection()
+		mysqlHealthy := testMySQLConnection()
+		if redisHealthy && mysqlHealthy {
+			log.Printf("✅ IP 未变化且后端健康: %s，跳过重连", req.IP)
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"message": "IP 未变化，后端健康，无需更新",
+				"data": gin.H{
+					"ip":            req.IP,
+					"redis_updated": false,
+					"mysql_updated": false,
+					"action":        "noop",
+				},
+			})
+			return
+		}
+		log.Printf("🔧 IP 未变化但后端不健康，按上传 IP 强制重连")
+	} else {
+		log.Printf("🔄 检测到 IP 变化: %s -> %s，开始重连 Redis/MySQL", oldIP, req.IP)
 	}
-
-	log.Printf("🔄 检测到 IP 变化: %s -> %s，开始重连 Redis/MySQL", oldIP, req.IP)
 
 	// 构造新的连接参数
 	newRedisHost := req.IP
