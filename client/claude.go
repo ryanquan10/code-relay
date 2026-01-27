@@ -2,6 +2,7 @@ package client
 
 import "codex-relay/client/common"
 import (
+	"bytes"
 	"codex-relay/internal/service"
 	"context"
 	"crypto/tls"
@@ -138,7 +139,7 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 
 		log.Printf("[Claude] 转发请求: %s %s -> %s://%s%s [用户: %s]",
 			req.Method, clientIP, upstreamURL.Scheme, upstreamURL.Host, req.URL.Path, common.MaskKey(customerToken))
-
+		log.Printf("[Claude] 最终上游地址: %s", req.URL.String())
 		if c.logHeaders {
 			log.Printf("  请求头: %v", req.Header)
 		}
@@ -148,8 +149,21 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 			log.Printf("  检测到 SSE 流式请求")
 		}
 
-		// 统计请求流量 (上行)
+		// 记录请求体并统计请求流量 (上行)
 		if req.Body != nil && req.Body != http.NoBody {
+			// 读取并记录请求体（恢复以继续转发）
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err != nil {
+				log.Printf("[Claude] 读取请求体失败: %v", err)
+			} else {
+				const logLimit = 65536
+				if len(bodyBytes) > logLimit {
+					log.Printf("[Claude] 请求体(前 %d 字节，已截断): %s", logLimit, string(bodyBytes[:logLimit]))
+				} else {
+					log.Printf("[Claude] 请求体: %s", string(bodyBytes))
+				}
+				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
 			if customerToken != "" {
 				counter := common.GetOrCreateCounter(customerToken)
 				req.Body = service.NewCountingReadCloser(req.Body, counter, "in")
@@ -177,7 +191,6 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 
 		log.Printf("[Claude] 收到响应: %s %d %s [用户: %s]",
 			resp.Request.URL.Path, resp.StatusCode, resp.Status, common.MaskKey(customerToken))
-
 		if c.logHeaders {
 			log.Printf("  响应头: %v", resp.Header)
 		}
