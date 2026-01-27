@@ -18,7 +18,7 @@ type TokenConvertService struct {
 	accountSourceRepo    *repository.AccountSourceRepository
 	sourceProductRepo    *repository.AccountSourceProductRepository
 	errorLogRepo         *repository.UpstreamErrorLogRepository
-	redisPriorityTTL     time.Duration // Redis 优先级降级的过期时间（默认 1 小时）
+	redisPriorityTTL     time.Duration // Redis 优先级降级的过期时间（默认 10 分钟）
 	enablePrioritySwitch bool          // 是否启用优先级切换
 }
 
@@ -39,8 +39,8 @@ func NewTokenConvertService() *TokenConvertService {
 		accountSourceRepo:    repository.NewAccountSourceRepository(),
 		sourceProductRepo:    repository.NewAccountSourceProductRepository(),
 		errorLogRepo:         repository.NewUpstreamErrorLogRepository(),
-		redisPriorityTTL:     1 * time.Hour, // 默认 1 小时
-		enablePrioritySwitch: true,          // 默认启用优先级切换
+		redisPriorityTTL:     10 * time.Minute, // 默认 10 分钟
+		enablePrioritySwitch: true,             // 默认启用优先级切换
 	}
 }
 

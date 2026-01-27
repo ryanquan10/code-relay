@@ -399,6 +399,8 @@ func (c *TokenUsageConsumer) StartConsuming(ctx context.Context) {
 				if err.Error() != "redis: nil" {
 					log.Printf("读取 Stream 失败: %v", err)
 				}
+				// 出错时（包括 client 已关闭），尝试获取最新客户端
+				client = redisstore.Client()
 				time.Sleep(1 * time.Second)
 				continue
 			}

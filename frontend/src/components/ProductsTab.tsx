@@ -248,7 +248,40 @@ export default function ProductsTab() {
     setShowModal(true);
   };
 
-  const handleDelete = async (id: number) => {
+    const handleDuplicate = (product: Product) => {
+    const duplicateCode = `${product.product_code}-copy`;
+    setEditingProduct(null);
+    setFormData({
+      product_code: duplicateCode,
+      product_name: product.product_name,
+      account_type: product.account_type,
+      category: product.category || '',
+      icon: product.icon || '',
+      image_url: product.image_url || '',
+      down_stream_url: product.down_stream_url || '',
+      description: product.description || '',
+      price: product.price,
+      original_price: product.original_price ?? null,
+      sales_count: product.sales_count ?? 0,
+      contact_info: product.contact_info || '',
+      usage_instruction: product.usage_instruction || '',
+      validity_days: product.validity_days,
+      shared_limit: product.shared_limit,
+      sources: product.sources && product.sources.length > 0
+        ? product.sources
+        : buildDefaultSourceSelection(sources),
+      cost_price: product.cost_price ?? 0,
+      default_balance: product.default_balance ?? 0,
+      original_balance: product.original_balance ?? 0,
+      stock: product.stock ?? 0,
+      auto_delivery: product.auto_delivery,
+      sort_order: product.sort_order,
+      status: product.status,
+      platforms_json: JSON.stringify((product as any).platforms ?? [], null, 2),
+    });
+    setShowModal(true);
+  };
+const handleDelete = async (id: number) => {
     if (!confirm('确定要删除这个产品吗？')) return;
     try {
       await productAPI.delete(id);
@@ -529,6 +562,12 @@ export default function ProductsTab() {
                       className="text-blue-600 hover:text-blue-900"
                     >
                       编辑
+                    </button>
+                    <button
+                      onClick={() => handleDuplicate(product)}
+                      className="text-gray-600 hover:text-gray-900"
+                    >
+                      复制
                     </button>
                     <button
                       onClick={() => handleDelete(product.id)}
@@ -867,5 +906,6 @@ export default function ProductsTab() {
     </div>
   );
 }
+
 
 

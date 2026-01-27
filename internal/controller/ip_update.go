@@ -68,69 +68,71 @@ func UpdateIP(c *gin.Context) {
 
 	log.Printf("📡 收到 IP 更新请求: %s", req.IP)
 
-	// 先测试当前的 MySQL 和 Redis 连接是否正常
-	mysqlHealthy := testMySQLConnection()
-	redisHealthy := testRedisConnection()
+	oldIP := cfg.Internal.Host
+	if req.IP == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "bad_request",
+			"message": "IP 不能为空",
+		})
+		return
+	}
 
-	if mysqlHealthy && redisHealthy {
-		log.Printf("✅ 当前数据库连接正常，无需更新")
+	if req.IP == oldIP {
+		log.Printf("✅ IP 未变化: %s，跳过重连", req.IP)
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"message": "IP 已收到，但当前连接正常，无需更新",
+			"message": "IP 未变化，无需更新",
 			"data": gin.H{
 				"ip":            req.IP,
-				"mysql_healthy": true,
-				"redis_healthy": true,
-				"action":        "skipped",
+				"redis_updated": false,
+				"mysql_updated": false,
+				"action":        "noop",
 			},
 		})
 		return
 	}
 
-	log.Printf("🔄 当前连接异常 (MySQL: %v, Redis: %v)，开始更新数据库连接...", mysqlHealthy, redisHealthy)
+	log.Printf("🔄 检测到 IP 变化: %s -> %s，开始重连 Redis/MySQL", oldIP, req.IP)
 
-	// 更新配置
+	// 构造新的连接参数
 	newRedisHost := req.IP
-	newMySQLHost := req.IP
+	database := extractDatabase(cfg.Spring.Datasource.URL)
+	newJdbcURL := fmt.Sprintf("jdbc:mysql://%s:3306/%s?charset=utf8mb4&parseTime=True&loc=Local", req.IP, database)
 
-	// 更新 Redis 连接（仅当 Redis 不健康时）
-	if !redisHealthy {
-		if err := reconnectRedis(newRedisHost, cfg.Spring.Redis.Port, cfg.Spring.Redis.Password, cfg.Spring.Redis.DB); err != nil {
-			log.Printf("❌ Redis 重连失败: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "reconnect_failed",
-				"message": "Redis 重连失败: " + err.Error(),
-			})
-			return
-		}
-		log.Printf("✅ Redis 重连成功: %s:%d", newRedisHost, cfg.Spring.Redis.Port)
-		cfg.Spring.Redis.Host = newRedisHost
+	// 重连 Redis
+	if err := reconnectRedis(newRedisHost, cfg.Spring.Redis.Port, cfg.Spring.Redis.Password, cfg.Spring.Redis.DB); err != nil {
+		log.Printf("❌ Redis 重连失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "reconnect_failed",
+			"message": "Redis 重连失败: " + err.Error(),
+		})
+		return
 	}
+	log.Printf("✅ Redis 重连成功: %s:%d", newRedisHost, cfg.Spring.Redis.Port)
 
-	// 更新 MySQL 连接（仅当 MySQL 不健康时）
-	if !mysqlHealthy {
-		database := extractDatabase(cfg.Spring.Datasource.URL)
-		newJdbcURL := fmt.Sprintf("jdbc:mysql://%s:3306/%s?charset=utf8mb4&parseTime=True&loc=Local", newMySQLHost, database)
-
-		if err := reconnectMySQL(newJdbcURL); err != nil {
-			log.Printf("❌ MySQL 重连失败: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "reconnect_failed",
-				"message": "MySQL 重连失败: " + err.Error(),
-			})
-			return
-		}
-		log.Printf("✅ MySQL 重连成功: %s:3306", newMySQLHost)
-		cfg.Internal.Host = newMySQLHost
+	// 重连 MySQL
+	if err := reconnectMySQL(newJdbcURL); err != nil {
+		log.Printf("❌ MySQL 重连失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "reconnect_failed",
+			"message": "MySQL 重连失败: " + err.Error(),
+		})
+		return
 	}
+	log.Printf("✅ MySQL 重连成功: %s:3306", req.IP)
+
+	// 更新内存中的配置，便于后续使用
+	cfg.Internal.Host = req.IP
+	cfg.Spring.Redis.Host = req.IP
+	cfg.Spring.Datasource.URL = newJdbcURL
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "IP 更新成功",
+		"message": "IP 更新并重连成功",
 		"data": gin.H{
 			"ip":            req.IP,
-			"redis_updated": !redisHealthy,
-			"mysql_updated": !mysqlHealthy,
+			"redis_updated": true,
+			"mysql_updated": true,
 			"action":        "updated",
 		},
 	})
