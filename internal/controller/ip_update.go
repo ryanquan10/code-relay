@@ -2,6 +2,7 @@ package controller
 
 import (
 	"codex-relay/config"
+	ipwatch "codex-relay/internal/ipwatch"
 	"codex-relay/internal/mysql"
 	"codex-relay/internal/redis"
 	"context"
@@ -67,6 +68,7 @@ func UpdateIP(c *gin.Context) {
 	}
 
 	log.Printf("📡 收到 IP 更新请求: %s", req.IP)
+	ipwatch.SetCurrentIP(req.IP)
 
 	oldIP := cfg.Internal.Host
 	if req.IP == "" {

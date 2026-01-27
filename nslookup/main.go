@@ -100,7 +100,7 @@ func loadConfig(path string) (*Config, error) {
 
 	// 设置默认值
 	if cfg.NSLookup.CheckInterval == 0 {
-		cfg.NSLookup.CheckInterval = 60 // 默认 60 秒
+		cfg.NSLookup.CheckInterval = 10 // 默认 60 秒
 	}
 
 	return &cfg, nil
