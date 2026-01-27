@@ -130,6 +130,26 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 			req.Header.Set("Authorization", "Bearer "+upstreamConfig.UpstreamToken)
 			req.Header.Set("x-api-key", upstreamConfig.UpstreamToken)
 			log.Printf("[Claude TokenConvert] 使用上流 URL: %s", upstreamConfig.UpstreamURL)
+			// 动态重写上游 URL（基于 account_source 配置）
+			if target, perr := url.Parse(upstreamConfig.UpstreamURL); perr != nil {
+				log.Printf("[Claude TokenConvert] 上游URL解析失败: %v, 继续使用默认上游", perr)
+			} else {
+				basePath := strings.TrimSuffix(target.Path, "/")
+				reqPath := req.URL.Path
+				if !strings.HasPrefix(reqPath, "/") {
+					reqPath = "/" + reqPath
+				}
+				if basePath == "" || basePath == "/" {
+					req.URL.Path = reqPath
+				} else if strings.HasSuffix(basePath, "/") {
+					req.URL.Path = basePath + strings.TrimPrefix(reqPath, "/")
+				} else {
+					req.URL.Path = basePath + reqPath
+				}
+				req.URL.Scheme = target.Scheme
+				req.URL.Host = target.Host
+				req.Host = target.Host
+			}
 		}
 
 		*req = *req.WithContext(ctx)
@@ -138,7 +158,7 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 		req.Header.Set("X-Real-IP", strings.Split(clientIP, ":")[0])
 
 		log.Printf("[Claude] 转发请求: %s %s -> %s://%s%s [用户: %s]",
-			req.Method, clientIP, upstreamURL.Scheme, upstreamURL.Host, req.URL.Path, common.MaskKey(customerToken))
+			req.Method, clientIP, req.URL.Scheme, req.URL.Host, req.URL.Path, common.MaskKey(customerToken))
 		log.Printf("[Claude] 最终上游地址: %s", req.URL.String())
 		if c.logHeaders {
 			log.Printf("  请求头: %v", req.Header)
