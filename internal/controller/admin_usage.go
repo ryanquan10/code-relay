@@ -18,6 +18,32 @@ func ListUsages(c *gin.Context) {
 		return
 	}
 
+	// 分页参数（默认每页100）
+	var qp struct {
+		Page int `form:"page"`
+		Size int `form:"size"`
+	}
+	_ = c.ShouldBindQuery(&qp)
+	page := qp.Page
+	size := qp.Size
+	if page <= 0 {
+		page = 1
+	}
+	if size <= 0 {
+		size = 100
+	}
+	if size > 500 {
+		size = 500
+	}
+	offset := (page - 1) * size
+
+	// 总数
+	var total int64
+	if err := db.Model(&entity.Usage{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	// 连接 account 以取出 token 作为 customer_key
 	type row struct {
 		ID         uint64    `json:"id"`
@@ -33,7 +59,8 @@ func ListUsages(c *gin.Context) {
 		Select("usage.id, usage.account_id, usage.tokens, usage.consume, usage.create_time, account.token").
 		Joins("LEFT JOIN account ON account.id = usage.account_id").
 		Order("usage.create_time DESC").
-		Limit(1000).
+		Limit(size).
+		Offset(offset).
 		Scan(&rows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -69,7 +96,14 @@ func ListUsages(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, resp)
+	// 返回分页结构
+	c.JSON(http.StatusOK, gin.H{
+		"items":       resp,
+		"page":        page,
+		"size":        size,
+		"total":       total,
+		"total_pages": (total + int64(size) - 1) / int64(size),
+	})
 }
 
 // QueryUsageByToken 根据 customer_key（即 account.token）查询使用量

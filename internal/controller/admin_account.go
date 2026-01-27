@@ -617,7 +617,14 @@ func UpdateAccount(c *gin.Context) {
 		account.UsedBalance = *req.UsedBalance
 	}
 	if req.Status != nil {
-		account.Status = strings.TrimSpace(*req.Status)
+		newStatus := strings.TrimSpace(*req.Status)
+		if newStatus != account.Status {
+			account.Status = newStatus
+			now := time.Now()
+			account.StartTime = &now
+		} else {
+			account.Status = newStatus
+		}
 	}
 	if req.ExpireDate != nil {
 		account.ExpireDate = req.ExpireDate

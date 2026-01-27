@@ -133,12 +133,6 @@ func checkAndNotify(cfg *NSLookupConfig) error {
 
 	log.Printf("📍 当前公网 IP: %s", ip)
 
-	// 检查是否变化
-	if ip == currentIP {
-		log.Printf("✅ IP 未变化，无需通知")
-		return nil
-	}
-
 	// IP 发生变化，通知远程服务器
 	log.Printf("🔄 IP 发生变化: %s -> %s", currentIP, ip)
 	currentIP = ip

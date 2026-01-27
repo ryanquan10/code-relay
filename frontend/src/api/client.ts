@@ -165,8 +165,10 @@ export interface Usage {
   created_at: string;
 }
 
+export interface Paged<T> { items: T[]; page: number; size: number; total: number; total_pages: number; }
+
 export const usageAPI = {
-  list: (params?: any) => api.get<any, Usage[]>('/usage', { params }),
+  list: (params?: any) => api.get<any, Paged<Usage>>('/usage', { params }),
   getByToken: (customerKey: string, dates?: string[]) =>
     api.post<any, { total_consume: number; details: Usage[] }>('/usage/query', { customer_key: customerKey, dates }),
   getStats: (startDate?: string, endDate?: string) =>
@@ -254,3 +256,5 @@ export const consoleLogAPI = {
     '/console-logs', { params: { limit } }
   ),
 };
+
+

@@ -20,7 +20,7 @@ export default function UsageTab() {
     try {
       setLoading(true);
       const data = await usageAPI.list();
-      setUsages(data);
+      setUsages(data.items || []);
     } catch (error) {
       console.error('加载使用量失败:', error);
       alert('加载使用量失败');
@@ -278,6 +278,7 @@ export default function UsageTab() {
     </div>
   );
 }
+
 
 
 
