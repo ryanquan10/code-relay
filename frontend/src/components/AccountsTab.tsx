@@ -522,7 +522,7 @@ export default function AccountsTab() {
                                 Token
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                产品ID
+                                产品名称
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 供应商ID
@@ -586,7 +586,7 @@ export default function AccountsTab() {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                        {account.product_id}
+                                        {account.product_name || account.product_id}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                         {account.source_id}
@@ -1067,6 +1067,19 @@ export default function AccountsTab() {
 </select>
                             </div>
                             <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">到期天数</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={editFormData.expire_days}
+                                    onChange={(e) =>
+                                        setEditFormData({ ...editFormData, expire_days: parseInt(e.target.value) || 1 })
+                                    }
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    required
+                                />
+                            </div>
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
                                 <select
                                     value={editFormData.product_id}
@@ -1106,6 +1119,7 @@ export default function AccountsTab() {
         </div>
     );
 }
+
 
 
 

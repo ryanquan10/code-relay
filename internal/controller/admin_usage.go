@@ -32,8 +32,8 @@ func ListUsages(c *gin.Context) {
 	if size <= 0 {
 		size = 100
 	}
-	if size > 500 {
-		size = 500
+	if size > 100 {
+		size = 100
 	}
 	offset := (page - 1) * size
 

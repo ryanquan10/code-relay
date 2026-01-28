@@ -18,18 +18,29 @@ func NewDeliveryRepository(db *gorm.DB) *DeliveryRepository {
 	return &DeliveryRepository{db: db}
 }
 
-// FindProductByPlatform 根据 Platform 和 ProductCode 查询 Product
+// FindProductByPlatform 根据 Platform、ProductCode 和可选的 SKU 查询 Product
 // 在 Product.Platforms JSON 数组中查找匹配的记录
-func (r *DeliveryRepository) FindProductByPlatform(platform, productCode string) (*entity.Product, error) {
+// 如果提供了 SKU，则必须匹配 SKU；如果没有提供 SKU，则只匹配 platform 和 product_code
+func (r *DeliveryRepository) FindProductByPlatform(platform, productCode string, sku *string) (*entity.Product, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is not initialized")
 	}
 
 	var product entity.Product
-	// 使用 JSON_CONTAINS 查询 platforms 字段
-	err := r.db.Where("JSON_CONTAINS(platforms, JSON_OBJECT('platform', ?, 'product_code', ?)) = 1",
-		platform, productCode).
-		First(&product).Error
+	var err error
+
+	if sku != nil && *sku != "" {
+		// 当提供了 SKU 时，必须匹配 platform、product_code 和 sku
+		err = r.db.Where("JSON_CONTAINS(platforms, JSON_OBJECT('platform', ?, 'product_code', ?, 'sku', ?)) = 1",
+			platform, productCode, *sku).
+			First(&product).Error
+	} else {
+		// 没有提供 SKU 时，只匹配 platform 和 product_code；若匹配多条，优先 validity_days=1
+		err = r.db.Where("JSON_CONTAINS(platforms, JSON_OBJECT('platform', ?, 'product_code', ?)) = 1",
+			platform, productCode).
+			Order("CASE WHEN validity_days = 1 THEN 0 ELSE 1 END, id ASC").
+			First(&product).Error
+	}
 
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -87,4 +98,20 @@ func (r *DeliveryRepository) UpdateAccountUseStatus(accountID uint64, useStatus 
 	}
 
 	return nil
+}
+
+// ListProductsByPlatform 返回匹配 platform + product_code 的所有 Product（不考虑 SKU）
+func (r *DeliveryRepository) ListProductsByPlatform(platform, productCode string) ([]entity.Product, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is not initialized")
+	}
+	var products []entity.Product
+	err := r.db.Where("JSON_CONTAINS(platforms, JSON_OBJECT('platform', ?, 'product_code', ?)) = 1",
+		platform, productCode).
+		Order("id ASC").
+		Find(&products).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list products by platform %s and product_code %s: %w", platform, productCode, err)
+	}
+	return products, nil
 }

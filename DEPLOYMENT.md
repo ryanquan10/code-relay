@@ -73,7 +73,7 @@ curl http://keySwift.top/api/internal/health
 编辑 `config/app.yaml`，确认以下配置：
 ```yaml
 nslookup:
-  check_interval: 60  # IP 检查间隔（秒）
+  check_interval: 10  # IP 检查间隔（秒）
   remote_url: http://keySwift.top/api/internal/update-ip
   auth_token: nslookup-ddns-2026  # 必须与 internal.nslookup_token 一致
 ```

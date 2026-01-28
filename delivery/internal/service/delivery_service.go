@@ -20,9 +20,10 @@ func NewDeliveryService(repo *repository.DeliveryRepository) *DeliveryService {
 
 // GetAccountRequest 获取账号的请求参数
 type GetAccountRequest struct {
-	Token       string `json:"token"`
-	ProductCode string `json:"product_code"`
-	Platform    string `json:"platform"`
+	Token       string  `json:"token"`
+	ProductCode string  `json:"product_code"`
+	SKU         *string `json:"sku,omitempty"`
+	Platform    string  `json:"platform"`
 }
 
 // AccountData 账号数据响应
@@ -47,13 +48,43 @@ func (s *DeliveryService) GetAccount(req GetAccountRequest) (*AccountData, error
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	// 1. 根据 Platform 和 ProductCode 查找 Product
+	// 1. 根据 Platform、ProductCode 和可选的 SKU 查找 Product
 	var product *entity.Product
-	product, err := s.repo.FindProductByPlatform(req.Platform, req.ProductCode)
+	var err error
+	if req.SKU != nil && *req.SKU != "" {
+		product, err = s.repo.FindProductByPlatform(req.Platform, req.ProductCode, req.SKU)
+	} else {
+		products, err2 := s.repo.ListProductsByPlatform(req.Platform, req.ProductCode)
+		if err2 != nil {
+			return nil, fmt.Errorf("failed to list products: %w", err2)
+		}
+		if len(products) == 0 {
+			return nil, fmt.Errorf("product not found for platform %s and product_code %s", req.Platform, req.ProductCode)
+		}
+		if len(products) == 1 {
+			product = &products[0]
+		} else {
+			// 多个匹配时，要求 validity_days == 1
+			var picked *entity.Product
+			for i := range products {
+				if products[i].ValidityDays == 1 {
+					picked = &products[i]
+					break
+				}
+			}
+			if picked == nil {
+				return nil, fmt.Errorf("multiple products matched for platform %s and product_code %s, but none has validity_days=1", req.Platform, req.ProductCode)
+			}
+			product = picked
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to find product: %w", err)
 	}
 	if product == nil {
+		if req.SKU != nil && *req.SKU != "" {
+			return nil, fmt.Errorf("product not found for platform %s, product_code %s and sku %s", req.Platform, req.ProductCode, *req.SKU)
+		}
 		return nil, fmt.Errorf("product not found for platform %s and product_code %s", req.Platform, req.ProductCode)
 	}
 
@@ -95,30 +126,34 @@ func fillDescription(tpl *string, email string, password *string, token *string)
 
 	replaced := replacePlaceholders(base, email, password, token)
 	if replaced == base {
-		// 模板无可识别占位符，则在末尾拼接账号信息
-		pwd := ""
-		if password != nil {
-			pwd = *password
+		// 模板无可识别占位符：按实际存在的字段拼接，避免输出空的“邮箱/密码”标签
+		trimmed := strings.TrimSpace(base)
+		parts := make([]string, 0, 3)
+		if strings.TrimSpace(email) != "" {
+			parts = append(parts, fmt.Sprintf("邮箱: %s", email))
 		}
-		tk := ""
-		if token != nil {
-			tk = *token
+		if password != nil && strings.TrimSpace(*password) != "" {
+			parts = append(parts, fmt.Sprintf("密码: %s", *password))
+		}
+		if token != nil && strings.TrimSpace(*token) != "" {
+			parts = append(parts, fmt.Sprintf("token: %s", *token))
+		}
+
+		// 如果既没有模板文本也没有可展示字段，则返回空描述（nil）
+		if trimmed == "" && len(parts) == 0 {
+			return nil
 		}
 
 		var sb strings.Builder
-		trimmed := strings.TrimSpace(base)
 		if trimmed != "" {
 			sb.WriteString(trimmed)
 			if !strings.HasSuffix(trimmed, "\n") {
 				sb.WriteString("\n")
 			}
 		}
-
-		sb.WriteString(fmt.Sprintf("邮箱: %s   密码: %s", email, pwd))
-		if tk != "" {
-			sb.WriteString(fmt.Sprintf("   token: %s", tk))
+		if len(parts) > 0 {
+			sb.WriteString(strings.Join(parts, "   "))
 		}
-
 		s := sb.String()
 		return &s
 	}

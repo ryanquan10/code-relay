@@ -64,8 +64,9 @@ func (Product) TableName() string {
 
 // ProductPlatform 产品平台关联
 type ProductPlatform struct {
-	ProductCode string `db:"product_code" json:"product_code" gorm:"index;not null"`    // 商品在平台的Code
-	Platform    string `db:"platform" json:"platform" gorm:"type:varchar(50);not null"` // xianyu/douyin/self
+	ProductCode string  `db:"product_code" json:"product_code" gorm:"index;not null"`    // 商品在平台的Code
+	SKU         *string `db:"sku" json:"sku,omitempty" gorm:"type:varchar(100)"`         // 可选的SKU
+	Platform    string  `db:"platform" json:"platform" gorm:"type:varchar(50);not null"` // xianyu/douyin/self
 }
 
 func (ProductPlatform) TableName() string {

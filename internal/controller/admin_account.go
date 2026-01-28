@@ -27,28 +27,56 @@ func ListAccounts(c *gin.Context) {
 	}
 
 	productIDStr := strings.TrimSpace(c.Query("product_id"))
-	var accounts []entity.Account
+
+	type accountWithProduct struct {
+		entity.Account
+		ProductName string `gorm:"column:product_name" json:"product_name"`
+	}
+
+	var rows []accountWithProduct
+	q := db.Table("account AS a").
+		Select("a.*, p.product_name AS product_name").
+		Joins("LEFT JOIN product AS p ON p.id = a.product_id")
+
 	if productIDStr != "" {
 		pid, err := strconv.ParseInt(productIDStr, 10, 64)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product_id"})
 			return
 		}
-		list, err := repository.NewAccountRepository().GetByProductId(pid)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		accounts = list
-	} else {
-		if err := db.Find(&accounts).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+		q = q.Where("a.product_id = ?", pid)
 	}
-	response := make([]accountResponse, 0, len(accounts))
-	for i := range accounts {
-		response = append(response, newAccountResponse(&accounts[i]))
+
+	if err := q.Find(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := make([]accountResponse, 0, len(rows))
+	for i := range rows {
+		a := rows[i]
+		response = append(response, accountResponse{
+			ID:               a.ID,
+			AccountEmail:     a.AccountEmail,
+			AccountPassword:  a.AccountPassword,
+			Token:            a.Token,
+			ProductID:        a.ProductID,
+			SourceID:         a.SourceID,
+			UserID:           a.UserID,
+			Status:           a.Status,
+			UseStatus:        a.UseStatus,
+			ExpireDate:       a.ExpireDate,
+			ExpireDays:       a.ExpireDays,
+			Balance:          a.Balance,
+			UsedBalance:      a.UsedBalance,
+			LastRechargeTime: a.LastRechargeTime,
+			StartTime:        a.StartTime,
+			Remark:           a.Remark,
+			Version:          a.Version,
+			CreateTime:       a.CreateTime,
+			UpdateTime:       a.UpdateTime,
+			ProductName:      a.ProductName,
+		})
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -67,19 +95,48 @@ func GetAccountByToken(c *gin.Context) {
 		return
 	}
 
-	repo := repository.NewAccountRepository()
-	account, err := repo.GetByToken(token)
-	if err != nil {
+	type accountWithProduct struct {
+		entity.Account
+		ProductName string `gorm:"column:product_name" json:"product_name"`
+	}
+
+	var row accountWithProduct
+	if err := db.Table("account AS a").
+		Select("a.*, p.product_name AS product_name").
+		Joins("LEFT JOIN product AS p ON p.id = a.product_id").
+		Where("a.token = ?", token).
+		First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	if account == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-		return
+	resp := accountResponse{
+		ID:               row.ID,
+		AccountEmail:     row.AccountEmail,
+		AccountPassword:  row.AccountPassword,
+		Token:            row.Token,
+		ProductID:        row.ProductID,
+		SourceID:         row.SourceID,
+		UserID:           row.UserID,
+		Status:           row.Status,
+		UseStatus:        row.UseStatus,
+		ExpireDate:       row.ExpireDate,
+		ExpireDays:       row.ExpireDays,
+		Balance:          row.Balance,
+		UsedBalance:      row.UsedBalance,
+		LastRechargeTime: row.LastRechargeTime,
+		StartTime:        row.StartTime,
+		Remark:           row.Remark,
+		Version:          row.Version,
+		CreateTime:       row.CreateTime,
+		UpdateTime:       row.UpdateTime,
+		ProductName:      row.ProductName,
 	}
-
-	c.JSON(http.StatusOK, newAccountResponse(account))
+	c.JSON(http.StatusOK, resp)
 }
 
 // CreateAccount 创建账号
@@ -575,6 +632,8 @@ func UpdateAccount(c *gin.Context) {
 		UsedBalance     *float64   `json:"used_balance"`
 		Status          *string    `json:"status"`
 		ExpireDate      *time.Time `json:"expire_date"`
+		ExpireDays      *int       `json:"expire_days"`
+		StartTime       *time.Time `json:"start_time"`
 		Remark          *string    `json:"remark"`
 		UseStatus       *int       `json:"use_status"`
 	}
@@ -628,6 +687,12 @@ func UpdateAccount(c *gin.Context) {
 	}
 	if req.ExpireDate != nil {
 		account.ExpireDate = req.ExpireDate
+	}
+	if req.ExpireDays != nil {
+		account.ExpireDays = *req.ExpireDays
+	}
+	if req.StartTime != nil {
+		account.StartTime = req.StartTime
 	}
 	if req.Remark != nil {
 		account.Remark = normalizeOptionalString(req.Remark)
@@ -722,14 +787,17 @@ type accountResponse struct {
 	AccountPassword  *string    `json:"account_password"`
 	Token            *string    `json:"token"`
 	ProductID        int64      `json:"product_id"`
+	ProductName      string     `json:"product_name"`
 	SourceID         int64      `json:"source_id"`
 	UserID           *uint64    `json:"user_id"`
 	Status           string     `json:"status"`
 	UseStatus        int        `json:"use_status"`
 	ExpireDate       *time.Time `json:"expire_date"`
+	ExpireDays       int        `json:"expire_days"`
 	Balance          float64    `json:"balance"`
 	UsedBalance      float64    `json:"used_balance"`
 	LastRechargeTime *time.Time `json:"last_recharge_time"`
+	StartTime        *time.Time `json:"start_time"`
 	Remark           *string    `json:"remark"`
 	Version          int        `json:"version"`
 	CreateTime       time.Time  `json:"create_time"`
@@ -748,9 +816,11 @@ func newAccountResponse(account *entity.Account) accountResponse {
 		Status:           account.Status,
 		UseStatus:        account.UseStatus,
 		ExpireDate:       account.ExpireDate,
+		ExpireDays:       account.ExpireDays,
 		Balance:          account.Balance,
 		UsedBalance:      account.UsedBalance,
 		LastRechargeTime: account.LastRechargeTime,
+		StartTime:        account.StartTime,
 		Remark:           account.Remark,
 		Version:          account.Version,
 		CreateTime:       account.CreateTime,

@@ -117,6 +117,7 @@ export interface Account {
   account_password?: string | null;
   token?: string | null;
   product_id: number;
+  product_name?: string;
   source_id: number;
   user_id?: number | null;
   balance: number;

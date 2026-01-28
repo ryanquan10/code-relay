@@ -1,5 +1,19 @@
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
+
 ﻿
 export default function Guide() {
+  const location = useLocation();
+  useEffect(() => {
+    const id = location.hash?.slice(1);
+    if (id) {
+      const el = document.getElementById(id);
+      if (el) {
+        setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+      }
+    }
+  }, [location.hash]);
+
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-5xl mx-auto px-6 py-10">
@@ -7,7 +21,7 @@ export default function Guide() {
         <p className="text-gray-600 mb-8">迄今为止最先进的代码助手整合教程。本页为公开访问的静态指南（/guide），无需登录。</p>
 
         <section className="mt-6">
-          <h2 className="text-2xl font-semibold mb-3">概览</h2>
+          <h2 id="overview" className="text-2xl font-semibold mb-3">概览</h2>
           <ul className="list-disc pl-6 space-y-2 text-gray-800">
             <li>Claude Code 是为编写代码而生的智能 Agent，可用自然语言高效实现想法。</li>
             <li>只需一杯咖啡的时间，Claude Code 就能帮你完成从理解到修改到提交的工作流。</li>
@@ -24,8 +38,7 @@ export default function Guide() {
         </section>
 
         <section className="mt-10">
-          <h2 className="text-2xl font-semibold mb-3">一、ClaudeCode（稳定性/性价比/口碑之王）</h2>
-          <p className="mb-2">官网：<a className="text-blue-600 underline" href="https://foxcode.hshwk.org/" target="_blank" rel="noopener noreferrer">https://foxcode.hshwk.org/</a>（注册后使用兑换码激活）</p>
+          <h2 id="claude" className="text-2xl font-semibold mb-3">一、ClaudeCode（稳定性/性价比/口碑之王）</h2>
           <ul className="list-disc pl-6 space-y-2 text-gray-800">
             <li>纯正 Max 号池：拒绝第三方掺假，调用质量稳定。</li>
             <li>无需魔法：国内外直连，响应快、稳定不封号。</li>
@@ -202,7 +215,7 @@ claude
         </section>
 
         <section className="mt-12">
-          <h2 className="text-2xl font-semibold mb-3">二、CodeX 安装教程（与 CC 额度通用）</h2>
+          <h2 id="codex" className="text-2xl font-semibold mb-3">二、CodeX 安装教程（与 CC 额度通用）</h2>
           <h3 className="text-xl font-semibold mt-2 mb-2">2.1 安装</h3>
           <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded overflow-auto"><code>{`npm install -g @openai/codex`}</code></pre>
 
@@ -359,7 +372,7 @@ prefix_rule(pattern=["Set-Content"], decision="allow")
 `}</code></pre></section>
 
         <section className="mt-12">
-          <h2 className="text-2xl font-semibold mb-3">三、Gemini CLI 安装教程</h2>
+          <h2 id="gemini" className="text-2xl font-semibold mb-3">三、Gemini CLI 安装教程</h2>
           <h3 className="text-xl font-semibold mt-2 mb-2">3.1 安装</h3>
           <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded overflow-auto"><code>{`npm install -g @google/gemini-cli`}</code></pre>
           <h3 className="text-xl font-semibold mt-4 mb-2">3.2 配置</h3>
@@ -376,12 +389,12 @@ GEMINI_MODEL=gemini-3-pro-preview`}</code></pre>
         </section>
 
         <section className="mt-12">
-          <h2 className="text-2xl font-semibold mb-3">四、Claude Code 官方中文文档</h2>
+          <h2 id="docs" className="text-2xl font-semibold mb-3">四、Claude Code 官方中文文档</h2>
           <a className="text-blue-600 underline" href="https://docs.anthropic.com/zh-CN/docs/claude-code/quickstart" target="_blank" rel="noopener noreferrer">https://docs.anthropic.com/zh-CN/docs/claude-code/quickstart</a>
         </section>
 
         <section className="mt-12">
-          <h2 className="text-2xl font-semibold mb-3">五、Claude Code 功能与用法</h2>
+          <h2 id="features" className="text-2xl font-semibold mb-3">五、Claude Code 功能与用法</h2>
           <h3 className="text-xl font-semibold mt-2 mb-2">5.1 交互方式</h3>
           <ul className="list-disc pl-6 text-gray-800">
             <li>交互模式：运行 <code>claude</code> 启动 REPL 会话</li>
