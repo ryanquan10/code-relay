@@ -132,6 +132,8 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			admin.GET("/usage/stats", controller.GetUsageStats)
 			// 控制台日志（最近 N 行）
 			admin.GET("/console-logs", controller.ListConsoleLogs)
+			// 上游错误日志
+			admin.GET("/error-logs", controller.ListErrorLogs)
 		}
 	}
 
