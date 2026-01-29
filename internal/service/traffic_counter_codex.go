@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"regexp"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,18 @@ const (
 
 	// StreamMaxLen Stream 最大长度（防止堆积）
 	StreamMaxLen = 10000
+)
+
+// 正则表达式：用于从 JSON 中提取字段（兜底方案）
+var (
+	// gptModelRegex 匹配 "model":"gpt-xxxx" 格式
+	gptModelRegex = regexp.MustCompile(`"model"\s*:\s*"(gpt-[^"]+)"`)
+	// inputTokensRegex 匹配 "input_tokens":123 格式
+	inputTokensRegex = regexp.MustCompile(`"input_tokens"\s*:\s*(\d+)`)
+	// outputTokensRegex 匹配 "output_tokens":456 格式
+	outputTokensRegex = regexp.MustCompile(`"output_tokens"\s*:\s*(\d+)`)
+	// totalTokensRegex 匹配 "total_tokens":789 格式
+	totalTokensRegex = regexp.MustCompile(`"total_tokens"\s*:\s*(\d+)`)
 )
 
 // TrafficCounter 流量计数器（按方向拆分）
@@ -346,6 +359,11 @@ func extractOfficialUsageFromJSON(payload []byte) (inTokens uint64, outTokens ui
 		return 0, 0, 0, "", false
 	}
 
+	// 记录使用的提取方式
+	var extractMethod string
+	var regexFields []string
+
+	// 第一层：尝试 JSON 解析
 	// 1) 直接响应体：{"usage":{...},"model":"..."}
 	var direct codexResponse
 	if err := json.Unmarshal(b, &direct); err == nil && direct.Usage != nil {
@@ -354,6 +372,7 @@ func extractOfficialUsageFromJSON(payload []byte) (inTokens uint64, outTokens ui
 		outTokens = u.OutputTokens
 		totalTokens = u.TotalTokens
 		model = direct.Model
+		extractMethod = "JSON解析(直接响应)"
 	} else {
 		// 2) 事件包裹：{"type":"...","response":{"usage":{...},"model":"..."}}
 		var env codexUsageEnvelope
@@ -365,17 +384,73 @@ func extractOfficialUsageFromJSON(payload []byte) (inTokens uint64, outTokens ui
 		outTokens = u.OutputTokens
 		totalTokens = u.TotalTokens
 		model = env.Response.Model
+		extractMethod = "JSON解析(事件包裹)"
 	}
 
+	// 第二层：正则表达式兜底（当 JSON 解析失败或字段为空时）
+	// 如果 input_tokens 为空，尝试正则提取
+	if inTokens == 0 {
+		if matches := inputTokensRegex.FindSubmatch(b); len(matches) > 1 {
+			if val, err := strconv.ParseUint(string(matches[1]), 10, 64); err == nil {
+				inTokens = val
+				regexFields = append(regexFields, "input_tokens")
+			}
+		}
+	}
+
+	// 如果 output_tokens 为空，尝试正则提取
+	if outTokens == 0 {
+		if matches := outputTokensRegex.FindSubmatch(b); len(matches) > 1 {
+			if val, err := strconv.ParseUint(string(matches[1]), 10, 64); err == nil {
+				outTokens = val
+				regexFields = append(regexFields, "output_tokens")
+			}
+		}
+	}
+
+	// 如果 total_tokens 为空，尝试正则提取
 	if totalTokens == 0 {
+		if matches := totalTokensRegex.FindSubmatch(b); len(matches) > 1 {
+			if val, err := strconv.ParseUint(string(matches[1]), 10, 64); err == nil {
+				totalTokens = val
+				regexFields = append(regexFields, "total_tokens")
+			}
+		}
+	}
+
+	// 如果 model 为空，尝试正则提取
+	if model == "" {
+		if matches := gptModelRegex.FindSubmatch(b); len(matches) > 1 {
+			model = string(matches[1])
+			regexFields = append(regexFields, "model")
+		}
+	}
+
+	// 第三层：计算兜底（补全缺失的 token 数据）
+	calculatedFields := []string{}
+	if totalTokens == 0 && (inTokens > 0 || outTokens > 0) {
 		totalTokens = inTokens + outTokens
+		calculatedFields = append(calculatedFields, "total_tokens=in+out")
 	}
 	if totalTokens > 0 && inTokens == 0 && outTokens == 0 {
 		inTokens = totalTokens
+		calculatedFields = append(calculatedFields, "input_tokens=total")
 	}
 	if totalTokens == 0 {
 		return 0, 0, 0, "", false
 	}
+
+	// 输出日志：显示使用的提取方式
+	logMsg := fmt.Sprintf("[提取方式] %s", extractMethod)
+	if len(regexFields) > 0 {
+		logMsg += fmt.Sprintf(" + 正则兜底[%v]", regexFields)
+	}
+	if len(calculatedFields) > 0 {
+		logMsg += fmt.Sprintf(" + 计算补全[%v]", calculatedFields)
+	}
+	logMsg += fmt.Sprintf(" | 结果: in=%d, out=%d, total=%d, model=%s", inTokens, outTokens, totalTokens, model)
+	log.Printf(logMsg)
+
 	return inTokens, outTokens, totalTokens, model, true
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"log"
+	"regexp"
 )
 
 // 本文件为 Claude 专用流量与计费封装，基于 Anthropic 官方定价实现语义化接口
@@ -18,28 +19,62 @@ const (
 
 // DetectClaudeModel 从模型字符串检测 Claude 模型类型
 // 支持的格式: "claude-haiku-4-5-xxx", "claude-sonnet-4-5-xxx", "claude-opus-4-5-xxx"
+// 也支持 JSON 格式: "model":"claude-sonnet-4-5-20250929"
+// 通过正则提取 claude- 后的模型名称，兼容未来新模型（如 claude-max、claude-plus 等）
 func DetectClaudeModel(modelStr string) ClaudeModel {
 	if modelStr == "" {
 		return ClaudeModelSonnet45 // 默认 Sonnet 4.5
 	}
 
-	// 检测 Haiku
-	if len(modelStr) >= 12 && modelStr[:12] == "claude-haiku" {
-		return ClaudeModelHaiku45
+	// 先尝试从 JSON 格式中提取完整模型名称: "model":"claude-xxx-xxx"
+	// 例如: "model":"claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5-20250929"
+	fullModelPattern := regexp.MustCompile(`(?i)"model"\s*:\s*"(claude-[^"]+)"`)
+	fullMatches := fullModelPattern.FindStringSubmatch(modelStr)
+
+	var extractedModel string
+	if len(fullMatches) >= 2 {
+		extractedModel = fullMatches[1]
+		log.Printf("[调试] 从 JSON 提取完整模型名称: %s", extractedModel)
+	} else {
+		extractedModel = modelStr
 	}
 
-	// 检测 Sonnet
-	if len(modelStr) >= 13 && modelStr[:13] == "claude-sonnet" {
+	// 提取 claude- 后面的第一个单词（模型类型）
+	// 例如: "claude-sonnet-4-5-20250929" -> "sonnet"
+	//      "claude-max-5-0" -> "max"
+	modelPattern := regexp.MustCompile(`(?i)claude[-_.\s]([a-z]+)`)
+	matches := modelPattern.FindStringSubmatch(extractedModel)
+
+	if len(matches) < 2 {
+		// 如果没有匹配到，尝试直接匹配关键词
+		if regexp.MustCompile(`(?i)haiku`).MatchString(modelStr) {
+			return ClaudeModelHaiku45
+		}
+		if regexp.MustCompile(`(?i)opus`).MatchString(modelStr) {
+			return ClaudeModelOpus45
+		}
+		if regexp.MustCompile(`(?i)sonnet`).MatchString(modelStr) {
+			return ClaudeModelSonnet45
+		}
+		return ClaudeModelSonnet45 // 默认
+	}
+
+	// 提取到的模型名称（转小写）
+	modelName := matches[1]
+
+	// 根据模型名称匹配
+	switch modelName {
+	case "haiku":
+		return ClaudeModelHaiku45
+	case "opus":
+		return ClaudeModelOpus45
+	case "sonnet":
+		return ClaudeModelSonnet45
+	default:
+		// 未知模型，默认使用 Sonnet 4.5 计费
+		log.Printf("[警告] 未知的 Claude 模型: %s，使用 Sonnet 4.5 计费", modelName)
 		return ClaudeModelSonnet45
 	}
-
-	// 检测 Opus
-	if len(modelStr) >= 11 && modelStr[:11] == "claude-opus" {
-		return ClaudeModelOpus45
-	}
-
-	// 默认回退到 Sonnet 4.5
-	return ClaudeModelSonnet45
 }
 
 // ClaudePricingConfig Claude 计费配置
