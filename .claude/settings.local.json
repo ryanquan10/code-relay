@@ -19,7 +19,8 @@
       "Bash(go mod tidy:*)",
       "Bash(xxd:*)",
       "Bash(go env:*)",
-      "Bash(go mod verify:*)"
+      "Bash(go mod verify:*)",
+      "Bash(go test:*)"
     ],
     "deny": [],
     "ask": []
