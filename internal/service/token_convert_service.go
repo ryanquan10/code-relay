@@ -84,6 +84,12 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 		}
 	}
 
+	// 限流检查：检查是否超过 token 使用限制
+	if exceeded, err := IsTokenLimitExceeded(customerToken, ""); err == nil && exceeded {
+		log.Printf("[TokenConvert] 账号已超过限流 [Token: %s]", maskToken(customerToken))
+		return nil, fmt.Errorf("rate limit exceeded")
+	}
+
 	// 2. 根据 ProductID 查询所有可用的上游源（按优先级排序）
 	sources, err := s.sourceProductRepo.GetSourcesByProductID(account.ProductID)
 	if err != nil {

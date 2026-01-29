@@ -46,6 +46,7 @@ type TrafficCounter struct {
 
 	StartTime     time.Time
 	customerToken string
+	model         *string // 模型名称（可选）
 
 	// 按方向缓存内容（用于更精确的 token 估算）
 	inputBuffer  []byte
@@ -56,16 +57,22 @@ type TrafficCounter struct {
 }
 
 // NewTrafficCounter 初始化流量计数器
-func NewTrafficCounter(customerToken string) *TrafficCounter {
+func NewTrafficCounter(customerToken string, model ...*string) *TrafficCounter {
 	// 记录用户访问
 	trackingService := NewUserTrackingService()
 	if err := trackingService.TrackUserAccess(customerToken); err != nil {
 		log.Printf("[警告] 记录用户访问失败: %v", err)
 	}
 
+	var modelPtr *string
+	if len(model) > 0 {
+		modelPtr = model[0]
+	}
+
 	return &TrafficCounter{
 		StartTime:     time.Now(),
 		customerToken: customerToken,
+		model:         modelPtr,
 		inputBuffer:   make([]byte, 0, 8192),
 		outputBuffer:  make([]byte, 0, 8192),
 	}
@@ -203,7 +210,7 @@ func (t *TrafficCounter) CheckAndFlushToStream() error {
 	newTokens := deltaIn + deltaOut
 
 	if newTokens >= FlushThreshold {
-		if err := SendTokenUsageToStreamWithIO(t.customerToken, newTokens, deltaIn, deltaOut); err != nil {
+		if err := SendTokenUsageToStreamWithIOAndModel(t.customerToken, newTokens, deltaIn, deltaOut, t.model); err != nil {
 			return fmt.Errorf("发送到 Stream 失败: %w", err)
 		}
 		log.Printf("[Token] 用户 %s 使用了 %d tokens (in=%d, out=%d, 已发送)",
@@ -250,11 +257,14 @@ func (t *TrafficCounter) Flush() error {
 	remaining := deltaIn + deltaOut
 
 	if remaining > 0 {
-		if err := SendTokenUsageToStreamWithIO(t.customerToken, remaining, deltaIn, deltaOut); err != nil {
+		if err := SendTokenUsageToStreamWithIOAndModel(t.customerToken, remaining, deltaIn, deltaOut, t.model); err != nil {
 			return fmt.Errorf("刷新到 Stream 失败: %w", err)
 		}
 		log.Printf("[Token] 最后刷新: %s +%d (in=%d, out=%d)",
 			maskKey(t.customerToken), remaining, deltaIn, deltaOut)
+
+		// 记录 token 使用量到限流器
+		ConsumeTokens(t.customerToken, "codex", int(remaining))
 	}
 	return nil
 }
@@ -566,7 +576,12 @@ func (s *CodexUsageSession) finalizeAndSend() error {
 		if officialModel != "" {
 			model = &officialModel
 		}
-		return SendTokenUsageToStreamWithIOAndModel(customerToken, officialTotal, officialIn, officialOut, model)
+		err := SendTokenUsageToStreamWithIOAndModel(customerToken, officialTotal, officialIn, officialOut, model)
+		if err == nil {
+			// 记录 token 使用量到限流器
+			ConsumeTokens(customerToken, "codex", int(officialTotal))
+		}
+		return err
 	}
 
 	// 官方 usage 没拿到（SSE 解析失败/非 SSE）：再尝试从整段响应体 JSON 直接提取 usage
@@ -575,7 +590,12 @@ func (s *CodexUsageSession) finalizeAndSend() error {
 		if m != "" {
 			model = &m
 		}
-		return SendTokenUsageToStreamWithIOAndModel(customerToken, totalT, inT, outT, model)
+		err := SendTokenUsageToStreamWithIOAndModel(customerToken, totalT, inT, outT, model)
+		if err == nil {
+			// 记录 token 使用量到限流器
+			ConsumeTokens(customerToken, "codex", int(totalT))
+		}
+		return err
 	}
 
 	var inTokens, outTokens uint64
@@ -593,7 +613,19 @@ func (s *CodexUsageSession) finalizeAndSend() error {
 	if total == 0 {
 		return nil
 	}
-	return SendTokenUsageToStreamWithIOAndModel(customerToken, total, inTokens, outTokens, nil)
+
+	// 使用 officialModel（如果有的话）
+	var model *string
+	if officialModel != "" {
+		model = &officialModel
+	}
+
+	err := SendTokenUsageToStreamWithIOAndModel(customerToken, total, inTokens, outTokens, model)
+	if err == nil {
+		// 记录 token 使用量到限流器
+		ConsumeTokens(customerToken, "codex", int(total))
+	}
+	return err
 }
 
 // CountingReadCloser 包装 io.ReadCloser，统计流量（带方向）

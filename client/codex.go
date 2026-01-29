@@ -429,6 +429,12 @@ func (c *codexRelay) HandleRequest(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprint(w, `{"error":"insufficient_balance","message":"账户余额不足，请充值"}`)
 				return
 			}
+			if strings.Contains(err.Error(), "rate limit exceeded") {
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(http.StatusTooManyRequests)
+				fmt.Fprint(w, `{"error":"rate_limit_exceeded","message":"请求过于频繁，请稍后再试"}`)
+				return
+			}
 		}
 	}
 

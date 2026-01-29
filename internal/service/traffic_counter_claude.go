@@ -16,6 +16,32 @@ const (
 	ClaudeModelOpus45   ClaudeModel = "opus-4.5"   // Claude Opus 4.5
 )
 
+// DetectClaudeModel 从模型字符串检测 Claude 模型类型
+// 支持的格式: "claude-haiku-4-5-xxx", "claude-sonnet-4-5-xxx", "claude-opus-4-5-xxx"
+func DetectClaudeModel(modelStr string) ClaudeModel {
+	if modelStr == "" {
+		return ClaudeModelSonnet45 // 默认 Sonnet 4.5
+	}
+
+	// 检测 Haiku
+	if len(modelStr) >= 12 && modelStr[:12] == "claude-haiku" {
+		return ClaudeModelHaiku45
+	}
+
+	// 检测 Sonnet
+	if len(modelStr) >= 13 && modelStr[:13] == "claude-sonnet" {
+		return ClaudeModelSonnet45
+	}
+
+	// 检测 Opus
+	if len(modelStr) >= 11 && modelStr[:11] == "claude-opus" {
+		return ClaudeModelOpus45
+	}
+
+	// 默认回退到 Sonnet 4.5
+	return ClaudeModelSonnet45
+}
+
 // ClaudePricingConfig Claude 计费配置
 type ClaudePricingConfig struct {
 	Model          ClaudeModel // 模型类型
@@ -203,17 +229,27 @@ func ClaudeOpusBatchTokensToConsumeByIO(inTokens uint64, outTokens uint64) float
 // 根据是否提供 in/out 拆分来计算更精确的消费金额
 // model: 可选的模型名称（例如 "claude-haiku-4-5-20251001"）
 func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, hash string, model *string) error {
+	// 检测模型类型并创建配置
+	config := DefaultClaudePricingConfig()
+	if model != nil {
+		config.Model = DetectClaudeModel(*model)
+	}
+
+	// 根据模型计算消费金额
 	var consume float64
 	if inTokens > 0 || outTokens > 0 {
-		consume = ClaudeTokensToConsumeByIO(inTokens, outTokens)
+		consume = ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, config)
 	} else {
-		consume = ClaudeTokensToConsume(tokens)
+		consume = ClaudeTokensToConsumeWithConfig(tokens, config)
 	}
 
 	usageService := NewUsageService()
 	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model); err != nil {
 		return fmt.Errorf("failed to record token usage: %w", err)
 	}
+
+	// 记录 token 使用量到限流器
+	ConsumeTokens(customerToken, "claude", int(tokens))
 
 	modelStr := "unknown"
 	if model != nil {
