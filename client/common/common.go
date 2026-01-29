@@ -15,8 +15,10 @@ type RelayConfig struct {
 type ContextKey string
 
 const (
-	CustomerTokenContextKey  ContextKey = "customerToken"
-	UpstreamConfigContextKey ContextKey = "upstreamConfig"
+	CustomerTokenContextKey      ContextKey = "customerToken"
+	UpstreamConfigContextKey     ContextKey = "upstreamConfig"
+	CodexUsageSessionContextKey  ContextKey = "codexUsageSession"
+	ClaudeUsageSessionContextKey ContextKey = "claudeUsageSession"
 )
 
 var (

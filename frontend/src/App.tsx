@@ -23,12 +23,11 @@ function App() {
                 {/* Admin 子页面（带 tab 参数） */}
                 <Route path="/admin/:tab" element={<AdminDashboard />} />
 
-                {/* 404 重定向到 admin/sources */}
                 {/* 公开账单查询 */}
-                <Route
-                    path={["/balance", "/bill-check"]}
-                    element={<BillCheck />}
-                />
+                <Route path="/balance" element={<BillCheck />} />
+                <Route path="/bill-check" element={<BillCheck />} />
+
+                {/* 404 重定向到 admin/sources */}
                 <Route path="*" element={<Navigate to="/admin/sources" replace />} />
             </Routes>
         </BrowserRouter>

@@ -50,13 +50,14 @@ func ListUsages(c *gin.Context) {
 		AccountID  uint64    `json:"account_id"`
 		Tokens     uint64    `json:"tokens"`
 		Consume    float64   `json:"consume"`
+		Model      *string   `json:"model,omitempty"`
 		CreateTime time.Time `json:"create_time"`
 		Token      *string   `json:"token"`
 	}
 
 	var rows []row
 	if err := db.Table("usage").
-		Select("usage.id, usage.account_id, usage.tokens, usage.consume, usage.create_time, account.token").
+		Select("usage.id, usage.account_id, usage.tokens, usage.consume, usage.model, usage.create_time, account.token").
 		Joins("LEFT JOIN account ON account.id = usage.account_id").
 		Order("usage.create_time DESC").
 		Limit(size).
@@ -74,6 +75,7 @@ func ListUsages(c *gin.Context) {
 		CustomerKey string  `json:"customer_key"`
 		Tokens      uint64  `json:"tokens"`
 		Consume     float64 `json:"consume"`
+		Model       *string `json:"model,omitempty"`
 		Date        string  `json:"date"`
 		CreatedAt   string  `json:"created_at"`
 	}
@@ -89,6 +91,7 @@ func ListUsages(c *gin.Context) {
 			UserID:      0,
 			AccountID:   r.AccountID,
 			CustomerKey: ck,
+			Model:       r.Model,
 			Tokens:      r.Tokens,
 			Consume:     r.Consume,
 			Date:        r.CreateTime.Format("2006-01-02"),
@@ -206,6 +209,7 @@ func QueryUsageByToken(c *gin.Context) {
 		CustomerKey string  `json:"customer_key"`
 		Tokens      uint64  `json:"tokens"`
 		Consume     float64 `json:"consume"`
+		Model       *string `json:"model,omitempty"`
 		Date        string  `json:"date"`
 		CreatedAt   string  `json:"created_at"`
 	}
@@ -217,6 +221,7 @@ func QueryUsageByToken(c *gin.Context) {
 			UserID:      0,
 			AccountID:   u.AccountID,
 			CustomerKey: req.CustomerKey,
+			Model:       u.Model,
 			Tokens:      u.TOKENS,
 			Consume:     u.Consume,
 			Date:        u.CreateTime.Format("2006-01-02"),
@@ -320,6 +325,11 @@ func GetUsageStats(c *gin.Context) {
 		UserCount int64  `json:"user_count"`
 	}
 
+	type MinuteRequestStat struct {
+		Minute       string `json:"minute"`
+		RequestCount int64  `json:"request_count"`
+	}
+
 	peakDate := time.Now()
 	if startDate != "" {
 		if t, err := parseDateOnly(startDate); err == nil {
@@ -329,6 +339,7 @@ func GetUsageStats(c *gin.Context) {
 	peakDayStart := time.Date(peakDate.Year(), peakDate.Month(), peakDate.Day(), 0, 0, 0, 0, peakDate.Location())
 	peakDayEnd := peakDayStart.Add(24 * time.Hour)
 
+	// 计算每分钟使用人数
 	var usersPerMinute []MinuteUserStat
 	if err := db.Table("usage").
 		Select("DATE_FORMAT(usage.create_time, '%Y-%m-%d %H:%i:00') AS minute, COUNT(DISTINCT usage.account_id) AS user_count").
@@ -349,15 +360,39 @@ func GetUsageStats(c *gin.Context) {
 		}
 	}
 
+	// 计算每分钟请求数
+	var requestsPerMinute []MinuteRequestStat
+	if err := db.Table("usage").
+		Select("DATE_FORMAT(usage.create_time, '%Y-%m-%d %H:%i:00') AS minute, COUNT(*) AS request_count").
+		Where("usage.create_time >= ? AND usage.create_time < ?", peakDayStart, peakDayEnd).
+		Group("minute").
+		Order("minute ASC").
+		Scan(&requestsPerMinute).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var peakRequests int64
+	var peakRequestsMinute string
+	for _, stat := range requestsPerMinute {
+		if stat.RequestCount > peakRequests {
+			peakRequests = stat.RequestCount
+			peakRequestsMinute = stat.Minute
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"total_consume":     result.TotalConsume,
-		"total_tokens":      result.TotalTokens,
-		"record_count":      result.RecordCount,
-		"by_source_type":    bySourceType,
-		"peak_users_date":   peakDayStart.Format("2006-01-02"),
-		"peak_users":        peakUsers,
-		"peak_users_minute": peakUsersMinute,
-		"users_per_minute":  usersPerMinute,
+		"total_consume":        result.TotalConsume,
+		"total_tokens":         result.TotalTokens,
+		"record_count":         result.RecordCount,
+		"by_source_type":       bySourceType,
+		"peak_users_date":      peakDayStart.Format("2006-01-02"),
+		"peak_users":           peakUsers,
+		"peak_users_minute":    peakUsersMinute,
+		"users_per_minute":     usersPerMinute,
+		"peak_requests":        peakRequests,
+		"peak_requests_minute": peakRequestsMinute,
+		"requests_per_minute":  requestsPerMinute,
 	})
 }
 

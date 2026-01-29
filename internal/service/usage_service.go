@@ -24,10 +24,10 @@ func NewUsageService() *UsageService {
 
 // RecordTokenUsage 记录 token 使用量
 // customerToken: 客户的 token（Account.Token）
-
 // tokens: 使用的 token 数量
 // consume: 消耗的余额金额
-func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, consume float64) error {
+// model: 使用的模型（可选，例如 "claude-haiku-4-5-20251001"）
+func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, consume float64, model *string) error {
 	// 1. 根据 customerToken 查找 Account
 	account, err := s.accountRepo.GetByToken(customerToken)
 
@@ -46,6 +46,7 @@ func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, con
 		AccountID:  account.ID,
 		TOKENS:     tokens,
 		Consume:    consume,
+		Model:      model,
 		CreateTime: now,
 		UpdateTime: now,
 	}

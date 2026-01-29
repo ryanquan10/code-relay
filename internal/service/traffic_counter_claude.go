@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"io"
 	"log"
 )
 
@@ -47,14 +46,9 @@ func NewClaudeTrafficCounter(customerToken string) *TrafficCounter {
 	return NewTrafficCounter(customerToken)
 }
 
-// NewClaudeCountingReadCloser 包装 io.ReadCloser，统计 Claude 流量（方向："in"/"out"）
-func NewClaudeCountingReadCloser(r io.ReadCloser, counter *TrafficCounter, dir string) io.ReadCloser {
-	return NewCountingReadCloser(r, counter, dir)
-}
-
-// SendClaudeTokenUsageToStreamWithIO 发送 Claude token 使用量（含方向）到 Redis Stream
-func SendClaudeTokenUsageToStreamWithIO(customerToken string, tokens uint64, inTokens uint64, outTokens uint64) error {
-	return SendTokenUsageToStreamWithIO(customerToken, tokens, inTokens, outTokens)
+// SendClaudeTokenUsageToStreamWithIO 发送 Claude token 使用量（含方向和模型）到 Redis Stream
+func SendClaudeTokenUsageToStreamWithIO(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, model *string) error {
+	return SendTokenUsageToStreamWithIOAndModel(customerToken, tokens, inTokens, outTokens, model)
 }
 
 // claudePricing Claude 定价结构（内部使用）
@@ -207,7 +201,8 @@ func ClaudeOpusBatchTokensToConsumeByIO(inTokens uint64, outTokens uint64) float
 
 // WriteClaudeToMySQL 写入 MySQL（Claude 定价）
 // 根据是否提供 in/out 拆分来计算更精确的消费金额
-func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, hash string) error {
+// model: 可选的模型名称（例如 "claude-haiku-4-5-20251001"）
+func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, hash string, model *string) error {
 	var consume float64
 	if inTokens > 0 || outTokens > 0 {
 		consume = ClaudeTokensToConsumeByIO(inTokens, outTokens)
@@ -216,11 +211,15 @@ func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, ou
 	}
 
 	usageService := NewUsageService()
-	if err := usageService.RecordTokenUsage(customerToken, tokens, consume); err != nil {
+	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model); err != nil {
 		return fmt.Errorf("failed to record token usage: %w", err)
 	}
 
-	log.Printf("[MySQL/Claude] 写入成功: token=%s, tokens=%d, consume=%.6f (USD), in=%d, out=%d, hash=%s",
-		maskKey(customerToken), tokens, consume, inTokens, outTokens, hash)
+	modelStr := "unknown"
+	if model != nil {
+		modelStr = *model
+	}
+	log.Printf("[MySQL/Claude] 写入成功: token=%s, tokens=%d, consume=%.6f (USD), in=%d, out=%d, model=%s, hash=%s",
+		maskKey(customerToken), tokens, consume, inTokens, outTokens, modelStr, hash)
 	return nil
 }

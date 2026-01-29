@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"strconv"
 	"sync"
@@ -10,7 +13,6 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"io"
 
 	redisstore "codex-relay/internal/redis"
 )
@@ -259,6 +261,11 @@ func (t *TrafficCounter) Flush() error {
 
 // SendTokenUsageToStreamWithIO 将 token 使用量发送到 Redis Stream，附带 in/out
 func SendTokenUsageToStreamWithIO(customerToken string, tokens uint64, inTokens uint64, outTokens uint64) error {
+	return SendTokenUsageToStreamWithIOAndModel(customerToken, tokens, inTokens, outTokens, nil)
+}
+
+// SendTokenUsageToStreamWithIOAndModel 将 token 使用量发送到 Redis Stream，附带 in/out 和 model（可选）
+func SendTokenUsageToStreamWithIOAndModel(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, model *string) error {
 	client := redisstore.Client()
 	if client == nil {
 		return fmt.Errorf("Redis 客户端未初始化")
@@ -270,6 +277,9 @@ func SendTokenUsageToStreamWithIO(customerToken string, tokens uint64, inTokens 
 		"tokens":        strconv.FormatUint(tokens, 10),
 		"input_tokens":  strconv.FormatUint(inTokens, 10),
 		"output_tokens": strconv.FormatUint(outTokens, 10),
+	}
+	if model != nil && *model != "" {
+		data["model"] = *model
 	}
 
 	_, err := client.XAdd(ctx, &redis.XAddArgs{
@@ -295,6 +305,295 @@ func maskKey(key string) string {
 		return "***"
 	}
 	return key[:10] + "..." + key[len(key)-6:]
+}
+
+// ===== Codex: 官方 usage 优先（缺失回退估算）=====
+
+type codexUsage struct {
+	InputTokens  uint64 `json:"input_tokens"`
+	OutputTokens uint64 `json:"output_tokens"`
+	TotalTokens  uint64 `json:"total_tokens"`
+}
+
+type codexResponse struct {
+	Usage *codexUsage `json:"usage"`
+	Model string      `json:"model"`
+}
+
+type codexSSEEvent struct {
+	Type     string         `json:"type"`
+	Response *codexResponse `json:"response"`
+}
+
+type codexUsageEnvelope struct {
+	Type     string         `json:"type"`
+	Response *codexResponse `json:"response"`
+}
+
+func extractOfficialUsageFromJSON(payload []byte) (inTokens uint64, outTokens uint64, totalTokens uint64, model string, ok bool) {
+	b := bytes.TrimSpace(payload)
+	if len(b) == 0 || b[0] != '{' {
+		return 0, 0, 0, "", false
+	}
+
+	// 1) 直接响应体：{"usage":{...},"model":"..."}
+	var direct codexResponse
+	if err := json.Unmarshal(b, &direct); err == nil && direct.Usage != nil {
+		u := direct.Usage
+		inTokens = u.InputTokens
+		outTokens = u.OutputTokens
+		totalTokens = u.TotalTokens
+		model = direct.Model
+	} else {
+		// 2) 事件包裹：{"type":"...","response":{"usage":{...},"model":"..."}}
+		var env codexUsageEnvelope
+		if err := json.Unmarshal(b, &env); err != nil || env.Response == nil || env.Response.Usage == nil {
+			return 0, 0, 0, "", false
+		}
+		u := env.Response.Usage
+		inTokens = u.InputTokens
+		outTokens = u.OutputTokens
+		totalTokens = u.TotalTokens
+		model = env.Response.Model
+	}
+
+	if totalTokens == 0 {
+		totalTokens = inTokens + outTokens
+	}
+	if totalTokens > 0 && inTokens == 0 && outTokens == 0 {
+		inTokens = totalTokens
+	}
+	if totalTokens == 0 {
+		return 0, 0, 0, "", false
+	}
+	return inTokens, outTokens, totalTokens, model, true
+}
+
+// CodexUsageSession 为单次请求/响应聚合用量（优先官方 usage）
+type CodexUsageSession struct {
+	customerToken string
+
+	mu sync.Mutex
+
+	inBytes  uint64
+	outBytes uint64
+
+	inBuffer  []byte
+	outBuffer []byte
+
+	sseRemainder  []byte
+	officialIn    uint64
+	officialOut   uint64
+	officialTotal uint64
+	officialModel string
+	officialFound bool
+
+	finalizeOnce sync.Once
+	finalizeErr  error
+}
+
+func NewCodexUsageSession(customerToken string) *CodexUsageSession {
+	// 记录用户访问（与通用计数器保持一致）
+	trackingService := NewUserTrackingService()
+	if err := trackingService.TrackUserAccess(customerToken); err != nil {
+		log.Printf("[警告] 记录用户访问失败: %v", err)
+	}
+
+	return &CodexUsageSession{
+		customerToken: customerToken,
+		inBuffer:      make([]byte, 0, 8192),
+		outBuffer:     make([]byte, 0, 8192),
+		sseRemainder:  make([]byte, 0, 8192),
+	}
+}
+
+func (s *CodexUsageSession) AddBytes(n int, dir string) {
+	if n <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch dir {
+	case "in":
+		s.inBytes += uint64(n)
+	case "out":
+		s.outBytes += uint64(n)
+	}
+}
+
+func (s *CodexUsageSession) AppendContent(p []byte, dir string) {
+	if len(p) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch dir {
+	case "in":
+		if len(s.inBuffer) < 32768 {
+			remain := 32768 - len(s.inBuffer)
+			if remain > len(p) {
+				remain = len(p)
+			}
+			s.inBuffer = append(s.inBuffer, p[:remain]...)
+		}
+	case "out":
+		if len(s.outBuffer) < 32768 {
+			remain := 32768 - len(s.outBuffer)
+			if remain > len(p) {
+				remain = len(p)
+			}
+			s.outBuffer = append(s.outBuffer, p[:remain]...)
+		}
+	}
+}
+
+func (s *CodexUsageSession) FeedResponseChunk(p []byte) {
+	if len(p) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.officialFound {
+		return
+	}
+
+	s.sseRemainder = append(s.sseRemainder, p...)
+	// 防止非 SSE / 超大响应导致内存增长
+	if len(s.sseRemainder) > 1024*1024 {
+		s.sseRemainder = s.sseRemainder[len(s.sseRemainder)-1024*1024:]
+	}
+
+	for {
+		sep := []byte("\n\n")
+		sepLen := 2
+		idx := bytes.Index(s.sseRemainder, sep)
+		if idx < 0 {
+			sep = []byte("\r\n\r\n")
+			sepLen = 4
+			idx = bytes.Index(s.sseRemainder, sep)
+		}
+		if idx < 0 {
+			return
+		}
+
+		msg := s.sseRemainder[:idx]
+		s.sseRemainder = s.sseRemainder[idx+sepLen:]
+
+		var dataParts [][]byte
+		for _, line := range bytes.Split(msg, []byte("\n")) {
+			line = bytes.TrimSuffix(line, []byte("\r"))
+			if !bytes.HasPrefix(line, []byte("data:")) {
+				continue
+			}
+			part := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+			if len(part) == 0 || bytes.Equal(part, []byte("[DONE]")) {
+				continue
+			}
+			dataParts = append(dataParts, part)
+		}
+		if len(dataParts) == 0 {
+			continue
+		}
+
+		payload := bytes.Join(dataParts, []byte("\n"))
+		if len(payload) == 0 || payload[0] != '{' {
+			continue
+		}
+
+		var ev codexSSEEvent
+		if err := json.Unmarshal(payload, &ev); err != nil {
+			continue
+		}
+		if ev.Type != "response.completed" || ev.Response == nil || ev.Response.Usage == nil {
+			continue
+		}
+
+		u := ev.Response.Usage
+		inTokens := u.InputTokens
+		outTokens := u.OutputTokens
+		totalTokens := u.TotalTokens
+		if totalTokens == 0 {
+			totalTokens = inTokens + outTokens
+		}
+		if totalTokens > 0 && inTokens == 0 && outTokens == 0 {
+			inTokens = totalTokens
+		}
+
+		if totalTokens == 0 {
+			continue
+		}
+
+		s.officialIn = inTokens
+		s.officialOut = outTokens
+		s.officialTotal = totalTokens
+		s.officialModel = ev.Response.Model
+		s.officialFound = true
+		return
+	}
+}
+
+func (s *CodexUsageSession) FinalizeAndSend() error {
+	s.finalizeOnce.Do(func() {
+		s.finalizeErr = s.finalizeAndSend()
+	})
+	return s.finalizeErr
+}
+
+func (s *CodexUsageSession) finalizeAndSend() error {
+	s.mu.Lock()
+	customerToken := s.customerToken
+	officialFound := s.officialFound
+	officialIn := s.officialIn
+	officialOut := s.officialOut
+	officialTotal := s.officialTotal
+	officialModel := s.officialModel
+
+	inBytes := s.inBytes
+	outBytes := s.outBytes
+	inBuf := append([]byte(nil), s.inBuffer...)
+	outBuf := append([]byte(nil), s.outBuffer...)
+	s.mu.Unlock()
+
+	if customerToken == "" {
+		return nil
+	}
+
+	if officialFound {
+		var model *string
+		if officialModel != "" {
+			model = &officialModel
+		}
+		return SendTokenUsageToStreamWithIOAndModel(customerToken, officialTotal, officialIn, officialOut, model)
+	}
+
+	// 官方 usage 没拿到（SSE 解析失败/非 SSE）：再尝试从整段响应体 JSON 直接提取 usage
+	if inT, outT, totalT, m, ok := extractOfficialUsageFromJSON(outBuf); ok {
+		var model *string
+		if m != "" {
+			model = &m
+		}
+		return SendTokenUsageToStreamWithIOAndModel(customerToken, totalT, inT, outT, model)
+	}
+
+	var inTokens, outTokens uint64
+	if len(inBuf) > 0 {
+		inTokens = EstimateTokensFromText(string(inBuf))
+	} else {
+		inTokens = BytesToTokens(inBytes)
+	}
+	if len(outBuf) > 0 {
+		outTokens = EstimateTokensFromText(string(outBuf))
+	} else {
+		outTokens = BytesToTokens(outBytes)
+	}
+	total := inTokens + outTokens
+	if total == 0 {
+		return nil
+	}
+	return SendTokenUsageToStreamWithIOAndModel(customerToken, total, inTokens, outTokens, nil)
 }
 
 // CountingReadCloser 包装 io.ReadCloser，统计流量（带方向）
@@ -337,6 +636,42 @@ func (c *CountingReadCloser) Close() error {
 	if c.Counter != nil {
 		if err := c.Counter.Flush(); err != nil {
 			log.Printf("[警告] 关闭时刷新 tokens 失败: %v", err)
+		}
+	}
+	return c.R.Close()
+}
+
+// codexCountingReadCloser 用于 Codex：抓取官方 usage，缺失回退估算
+type codexCountingReadCloser struct {
+	R         io.ReadCloser
+	Session   *CodexUsageSession
+	Direction string // "in" 或 "out"
+}
+
+func NewCodexCountingReadCloser(r io.ReadCloser, session *CodexUsageSession, dir string) io.ReadCloser {
+	return &codexCountingReadCloser{
+		R:         r,
+		Session:   session,
+		Direction: dir,
+	}
+}
+
+func (c *codexCountingReadCloser) Read(p []byte) (int, error) {
+	n, err := c.R.Read(p)
+	if n > 0 && c.Session != nil {
+		c.Session.AddBytes(n, c.Direction)
+		c.Session.AppendContent(p[:n], c.Direction)
+		if c.Direction == "out" {
+			c.Session.FeedResponseChunk(p[:n])
+		}
+	}
+	return n, err
+}
+
+func (c *codexCountingReadCloser) Close() error {
+	if c.Session != nil && c.Direction == "out" {
+		if err := c.Session.FinalizeAndSend(); err != nil {
+			log.Printf("[警告] Codex 最后刷新失败: %v", err)
 		}
 	}
 	return c.R.Close()
@@ -430,6 +765,7 @@ func (c *TokenUsageConsumer) processMessage(msg redis.XMessage) {
 	tokensStr, _ := msg.Values["tokens"].(string)
 	inStr, _ := msg.Values["input_tokens"].(string)
 	outStr, _ := msg.Values["output_tokens"].(string)
+	modelStr, _ := msg.Values["model"].(string)
 
 	var inTokens, outTokens uint64
 	if inStr != "" {
@@ -453,19 +789,24 @@ func (c *TokenUsageConsumer) processMessage(msg redis.XMessage) {
 		}
 	}
 
-	log.Printf("[消费] 处理消息: 用户=%s, tokens=%d (in=%d, out=%d)",
-		maskKey(customerToken), tokens, inTokens, outTokens)
+	var model *string
+	if modelStr != "" {
+		model = &modelStr
+	}
+
+	log.Printf("[消费] 处理消息: 用户=%s, tokens=%d (in=%d, out=%d, model=%s)",
+		maskKey(customerToken), tokens, inTokens, outTokens, modelStr)
 
 	// 写入 MySQL（按方向近似计费）
-	if err := c.writeToMySQL(customerToken, tokens, inTokens, outTokens, ""); err != nil {
+	if err := c.writeToMySQL(customerToken, tokens, inTokens, outTokens, model, ""); err != nil {
 		log.Printf("✗ 写入 MySQL 失败: %v", err)
 	} else {
-		log.Printf("✓ 写入 MySQL 成功: %s +%d tokens (in=%d, out=%d)", maskKey(customerToken), tokens, inTokens, outTokens)
+		log.Printf("✓ 写入 MySQL 成功: %s +%d tokens (in=%d, out=%d, model=%s)", maskKey(customerToken), tokens, inTokens, outTokens, modelStr)
 	}
 }
 
 // writeToMySQL 写入 MySQL 使用 UsageService
-func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, hash string) error {
+func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, model *string, hash string) error {
 	// 2. 将 tokens 转换为消费金额（方向区分）
 	// 按官网每百万 tokens 单价近似计价，单位 USD
 	// 实际项目中应根据产品定价/账户类型计算
@@ -478,7 +819,7 @@ func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, i
 
 	// 3. 使用 UsageService 记录使用量
 	usageService := NewUsageService()
-	if err := usageService.RecordTokenUsage(customerToken, tokens, consume); err != nil {
+	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model); err != nil {
 		return fmt.Errorf("failed to record token usage: %w", err)
 	}
 

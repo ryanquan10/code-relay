@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"io"
-	"log"
 	"strings"
 )
 
@@ -76,23 +74,36 @@ func parseClaudeJSONResponse(body []byte) (*ClaudeUsageInfo, error) {
 }
 
 // parseClaudeSSEResponse 解析 SSE 流式响应
-// SSE 格式: data: {...}\n\n
+// 支持两种格式:
+// 1. 标准 SSE: "data: {...}"
+// 2. 直接 JSON: "message_delta{...}" 或 "{...}"
 func parseClaudeSSEResponse(body []byte) (*ClaudeUsageInfo, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	var info ClaudeUsageInfo
 	var foundUsage bool
 
 	for scanner.Scan() {
-		line := scanner.Text()
-
-		// SSE 格式: "data: {...}"
-		if !strings.HasPrefix(line, "data: ") {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
 			continue
 		}
 
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			continue
+		var data string
+
+		// 处理标准 SSE 格式: "data: {...}"
+		if strings.HasPrefix(line, "data: ") {
+			data = strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				continue
+			}
+		} else {
+			// 处理直接 JSON 格式: "message_delta{...}" 或 "{...}"
+			// 提取 JSON 部分（从第一个 '{' 开始）
+			if idx := strings.Index(line, "{"); idx >= 0 {
+				data = line[idx:]
+			} else {
+				continue
+			}
 		}
 
 		var event ClaudeSSEEvent

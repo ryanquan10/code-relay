@@ -13,7 +13,13 @@
       "Bash(ren nslookup _nslookup)",
       "Bash(nul)",
       "Bash(tasklist:*)",
-      "Bash(./codex-relay.exe)"
+      "Bash(./codex-relay.exe)",
+      "Bash(gofmt:*)",
+      "Bash(go clean:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(xxd:*)",
+      "Bash(go env:*)",
+      "Bash(go mod verify:*)"
     ],
     "deny": [],
     "ask": []

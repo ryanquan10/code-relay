@@ -128,11 +128,19 @@ export default function UsageTab() {
             {stats && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6 mb-6">
                     <div className="bg-white rounded-lg shadow p-6">
-                        <div className="text-sm text-gray-600 mb-1">当天最大并發使用人数分鐘</div>
+                        <div className="text-sm text-gray-600 mb-1">当天最大并发使用人数</div>
                         <div className="text-3xl font-bold text-rose-600">{stats.peak_users?.toLocaleString() || '0'}</div>
                         <div className="text-sm text-gray-500 mt-1">
                             {stats.peak_users_date}
                             {stats.peak_users_minute ? ` @ ${stats.peak_users_minute}` : ''}
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <div className="text-sm text-gray-600 mb-1">当天最大并发请求数</div>
+                        <div className="text-3xl font-bold text-orange-600">{stats.peak_requests?.toLocaleString() || '0'}</div>
+                        <div className="text-sm text-gray-500 mt-1">
+                            {stats.peak_users_date}
+                            {stats.peak_requests_minute ? ` @ ${stats.peak_requests_minute}` : ''}
                         </div>
                     </div>
                     <div className="bg-white rounded-lg shadow p-6">
@@ -322,6 +330,7 @@ export default function UsageTab() {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Customer Key
                                 </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Tokens
                                 </th>
@@ -339,7 +348,7 @@ export default function UsageTab() {
                         <tbody className="bg-white divide-y divide-gray-200">
                             {usages.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                                         暂无数据
                                     </td>
                                 </tr>
@@ -350,6 +359,7 @@ export default function UsageTab() {
                                         <td className="px-6 py-4 text-sm text-gray-900">
                                             <span className="font-mono text-xs">{u.customer_key}</span>
                                         </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{u.model ?? '-'}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                             {u.tokens.toLocaleString()}
                                         </td>

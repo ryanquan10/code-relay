@@ -1,4 +1,4 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 
 const api = axios.create({
   baseURL: '/api/admin',
@@ -162,6 +162,7 @@ export interface Usage {
   customer_key: string;
   tokens: number;
   consume: number;
+  model?: string | null;
   date: string;
   created_at: string;
 }
@@ -180,6 +181,11 @@ export interface UsageUsersPerMinuteStat {
   user_count: number;
 }
 
+export interface UsageRequestsPerMinuteStat {
+  minute: string;
+  request_count: number;
+}
+
 export interface UsageStatsResponse {
   total_consume: number;
   total_tokens: number;
@@ -189,6 +195,9 @@ export interface UsageStatsResponse {
   peak_users: number;
   peak_users_minute: string;
   users_per_minute: UsageUsersPerMinuteStat[];
+  peak_requests: number;
+  peak_requests_minute: string;
+  requests_per_minute: UsageRequestsPerMinuteStat[];
 }
 
 export const usageAPI = {
@@ -287,6 +296,7 @@ export const consoleLogAPI = {
 export interface PublicUsageItem {
   consume: number;
   tokens: number;
+  model?: string | null;
   create_time: string;
   update_time: string;
 }

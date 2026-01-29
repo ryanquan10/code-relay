@@ -52,14 +52,16 @@ func PublicListUsagesByToken(c *gin.Context) {
 
 	// 结果行，仅包含所需字段
 	type row struct {
-		Consume    float64   `json:"consume"`
-		Tokens     uint64    `json:"tokens"`
+		Consume float64 `json:"consume"`
+		Tokens  uint64  `json:"tokens"`
+
+		Model      *string   `json:"model,omitempty"`
 		CreateTime time.Time `json:"create_time"`
 		UpdateTime time.Time `json:"update_time"`
 	}
 
 	q := db.Table("usage").
-		Select("usage.consume, usage.tokens, usage.create_time, usage.update_time").
+		Select("usage.consume, usage.tokens, usage.model, usage.create_time, usage.update_time").
 		Joins("LEFT JOIN account ON account.id = usage.account_id").
 		Joins("LEFT JOIN account_source ON account.source_id = account_source.id").
 		Where("account.token = ?", token)

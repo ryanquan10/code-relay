@@ -117,6 +117,11 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 		// 保存 customerToken 于 context
 		ctx := context.WithValue(req.Context(), common.CustomerTokenContextKey, customerToken)
 
+		// 创建 Claude usage session（检测是否为 SSE）
+		isSSE := strings.Contains(req.Header.Get("Accept"), "text/event-stream")
+		session := service.NewClaudeUsageSession(customerToken, isSSE)
+		ctx = context.WithValue(ctx, common.ClaudeUsageSessionContextKey, session)
+
 		// 转换为上游 token（余额/有效性检查）
 		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken)
 		if err != nil {
@@ -185,8 +190,9 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			}
 			if customerToken != "" {
-				counter := common.GetOrCreateCounter(customerToken)
-				req.Body = service.NewCountingReadCloser(req.Body, counter, "in")
+				if session, ok := ctx.Value(common.ClaudeUsageSessionContextKey).(*service.ClaudeUsageSession); ok && session != nil {
+					req.Body = service.NewClaudeCountingReadCloser(req.Body, session, "in")
+				}
 			}
 		}
 	}
@@ -203,10 +209,11 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 			upstreamConfig = key.(*service.UpstreamConfig)
 		}
 
-		// 统计响应流量 (下行)
+		// 统计响应流量 (下行) - 使用新的 session 提取官方 token
 		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
-			counter := common.GetOrCreateCounter(customerToken)
-			resp.Body = service.NewCountingReadCloser(resp.Body, counter, "out")
+			if session, ok := resp.Request.Context().Value(common.ClaudeUsageSessionContextKey).(*service.ClaudeUsageSession); ok && session != nil {
+				resp.Body = service.NewClaudeCountingReadCloser(resp.Body, session, "out")
+			}
 		}
 
 		log.Printf("[Claude] 收到响应: %s %d %s [用户: %s]",

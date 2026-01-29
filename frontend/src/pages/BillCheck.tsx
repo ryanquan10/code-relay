@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { publicMetaAPI, publicUsageAPI, PublicUsageItem } from '../api/client';
 
 export default function BillCheck() {
@@ -89,6 +89,7 @@ export default function BillCheck() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Consume</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tokens</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Create Time</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Update Time</th>
                 </tr>
@@ -96,7 +97,7 @@ export default function BillCheck() {
               <tbody className="bg-white divide-y divide-gray-200 text-sm">
                 {items.length === 0 && !loading ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                       暂无数据
                     </td>
                   </tr>
@@ -105,6 +106,7 @@ export default function BillCheck() {
                     <tr key={idx}>
                       <td className="px-6 py-3 text-gray-800">{it.consume?.toFixed?.(4) ?? it.consume}</td>
                       <td className="px-6 py-3 text-gray-800">{it.tokens}</td>
+                      <td className="px-6 py-3 text-gray-800">{it.model ?? '-'}</td>
                       <td className="px-6 py-3 text-gray-600">{new Date(it.create_time).toLocaleString()}</td>
                       <td className="px-6 py-3 text-gray-600">{new Date(it.update_time).toLocaleString()}</td>
                     </tr>

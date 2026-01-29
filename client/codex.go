@@ -116,6 +116,11 @@ func (c *codexRelay) setupProxy(config common.RelayConfig) error {
 
 		// 将 customerToken 存入 context
 		ctx := context.WithValue(req.Context(), common.CustomerTokenContextKey, customerToken)
+		var usageSession *service.CodexUsageSession
+		if customerToken != "" {
+			usageSession = service.NewCodexUsageSession(customerToken)
+			ctx = context.WithValue(ctx, common.CodexUsageSessionContextKey, usageSession)
+		}
 
 		// 使用 token_convert_service 转换 token 和上流地址
 		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken)
@@ -156,8 +161,12 @@ func (c *codexRelay) setupProxy(config common.RelayConfig) error {
 
 		// 统计请求流量 (上行)
 		if req.Body != nil && req.Body != http.NoBody && customerToken != "" {
-			counter := common.GetOrCreateCounter(customerToken)
-			req.Body = service.NewCountingReadCloser(req.Body, counter, "in")
+			if usageSession != nil {
+				req.Body = service.NewCodexCountingReadCloser(req.Body, usageSession, "in")
+			} else {
+				counter := common.GetOrCreateCounter(customerToken)
+				req.Body = service.NewCountingReadCloser(req.Body, counter, "in")
+			}
 		}
 	}
 
@@ -177,8 +186,18 @@ func (c *codexRelay) setupProxy(config common.RelayConfig) error {
 
 		// 统计响应流量 (下行)
 		if resp.Body != nil && resp.Body != http.NoBody && customerToken != "" {
-			counter := common.GetOrCreateCounter(customerToken)
-			resp.Body = service.NewCountingReadCloser(resp.Body, counter, "out")
+			var usageSession *service.CodexUsageSession
+			if v := resp.Request.Context().Value(common.CodexUsageSessionContextKey); v != nil {
+				if s, ok := v.(*service.CodexUsageSession); ok {
+					usageSession = s
+				}
+			}
+			if usageSession != nil {
+				resp.Body = service.NewCodexCountingReadCloser(resp.Body, usageSession, "out")
+			} else {
+				counter := common.GetOrCreateCounter(customerToken)
+				resp.Body = service.NewCountingReadCloser(resp.Body, counter, "out")
+			}
 		}
 
 		log.Printf("[Codex] 收到响应: %s %d %s [用户: %s]",
@@ -213,12 +232,11 @@ func (c *codexRelay) setupProxy(config common.RelayConfig) error {
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.Printf("[Codex] 代理错误 [%s %s]: %v", r.Method, r.URL.Path, err)
 
-		// 即使出错也尝试刷新计数器
-		if key := r.Context().Value(common.CustomerTokenContextKey); key != nil {
-			customerToken := key.(string)
-			if counter := common.GetOrCreateCounter(customerToken); counter != nil {
-				if flushErr := counter.Flush(); flushErr != nil {
-					log.Printf("[Codex 警告] 刷新计数器失败: %v", flushErr)
+		// 即使出错也尝试写入用量（优先官方 usage，缺失则回退估算）
+		if v := r.Context().Value(common.CodexUsageSessionContextKey); v != nil {
+			if s, ok := v.(*service.CodexUsageSession); ok && s != nil {
+				if flushErr := s.FinalizeAndSend(); flushErr != nil {
+					log.Printf("[Codex 警告] 刷新用量失败: %v", flushErr)
 				}
 			}
 		}
