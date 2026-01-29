@@ -1,11 +1,8 @@
 package service
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"regexp"
-	"strings"
 )
 
 // ClaudeUsageInfo 从 Claude API 响应中提取的使用信息
