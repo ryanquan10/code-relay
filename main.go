@@ -17,6 +17,7 @@ import (
 	"codex-relay/internal/redis"
 	"codex-relay/internal/server"
 	"codex-relay/internal/service"
+	"codex-relay/internal/task"
 )
 
 // buildJdbcURL replaces the host in a jdbc:mysql:// URL while preserving db and params.
@@ -122,6 +123,10 @@ func main() {
 			return
 		}
 	}()
+
+	// 启动用户追踪清理任务（每30秒清理一次）
+	cleanupTask := task.NewUserTrackingCleanupTask(30 * time.Second)
+	go cleanupTask.Start()
 
 	// 处理优雅关闭信号
 	sigChan := make(chan os.Signal, 1)

@@ -39,6 +39,11 @@ func DefaultClaudePricingConfig() ClaudePricingConfig {
 
 // NewClaudeTrafficCounter 初始化 Claude 流量计数器（复用通用实现）
 func NewClaudeTrafficCounter(customerToken string) *TrafficCounter {
+	// 记录用户访问
+	trackingService := NewUserTrackingService()
+	if err := trackingService.TrackUserAccess(customerToken); err != nil {
+		log.Printf("[警告] 记录用户访问失败: %v", err)
+	}
 	return NewTrafficCounter(customerToken)
 }
 

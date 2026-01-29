@@ -55,6 +55,12 @@ type TrafficCounter struct {
 
 // NewTrafficCounter 初始化流量计数器
 func NewTrafficCounter(customerToken string) *TrafficCounter {
+	// 记录用户访问
+	trackingService := NewUserTrackingService()
+	if err := trackingService.TrackUserAccess(customerToken); err != nil {
+		log.Printf("[警告] 记录用户访问失败: %v", err)
+	}
+
 	return &TrafficCounter{
 		StartTime:     time.Now(),
 		customerToken: customerToken,

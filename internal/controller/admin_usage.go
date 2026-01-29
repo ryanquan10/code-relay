@@ -241,6 +241,29 @@ func GetUsageStats(c *gin.Context) {
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 
+	parseDateOnly := func(value string) (time.Time, error) {
+		return time.ParseInLocation("2006-01-02", value, time.Local)
+	}
+
+	var (
+		startTime time.Time
+		endTime   time.Time
+		hasStart  bool
+		hasEnd    bool
+	)
+	if startDate != "" {
+		if t, err := parseDateOnly(startDate); err == nil {
+			startTime = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+			hasStart = true
+		}
+	}
+	if endDate != "" {
+		if t, err := parseDateOnly(endDate); err == nil {
+			endTime = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).Add(24 * time.Hour)
+			hasEnd = true
+		}
+	}
+
 	var result struct {
 		TotalConsume float64
 		TotalTokens  uint64
@@ -248,18 +271,107 @@ func GetUsageStats(c *gin.Context) {
 	}
 
 	query := db.Model(&entity.Usage{})
-	if startDate != "" {
+	if hasStart {
+		query = query.Where("create_time >= ?", startTime)
+	} else if startDate != "" {
 		query = query.Where("create_time >= ?", startDate)
 	}
-	if endDate != "" {
+	if hasEnd {
+		query = query.Where("create_time < ?", endTime)
+	} else if endDate != "" {
 		query = query.Where("create_time <= ?", endDate)
 	}
 
 	query.Select("COALESCE(SUM(consume),0) as total_consume, COALESCE(SUM(tokens),0) as total_tokens, COUNT(*) as record_count").Scan(&result)
 
+	// 聚合：按 account_source.source_type 统计
+	type SourceTypeStat struct {
+		SourceType   string  `json:"source_type"`
+		TotalConsume float64 `json:"total_consume"`
+		TotalTokens  uint64  `json:"total_tokens"`
+		RecordCount  int64   `json:"record_count"`
+	}
+
+	statsQuery := db.Table("usage").
+		Select("COALESCE(account_source.source_type, 'unknown') AS source_type, COALESCE(SUM(usage.consume),0) AS total_consume, COALESCE(SUM(usage.tokens),0) AS total_tokens, COUNT(*) AS record_count").
+		Joins("LEFT JOIN account ON account.id = usage.account_id").
+		Joins("LEFT JOIN account_source ON account.source_id = account_source.id").Where("account_source.source_type IS NOT NULL AND account_source.source_type <> ''")
+
+	if hasStart {
+		statsQuery = statsQuery.Where("usage.create_time >= ?", startTime)
+	} else if startDate != "" {
+		statsQuery = statsQuery.Where("usage.create_time >= ?", startDate)
+	}
+	if hasEnd {
+		statsQuery = statsQuery.Where("usage.create_time < ?", endTime)
+	} else if endDate != "" {
+		statsQuery = statsQuery.Where("usage.create_time <= ?", endDate)
+	}
+
+	var bySourceType []SourceTypeStat
+	// 按来源类型分组，按消费额倒序
+	if err := statsQuery.Group("account_source.source_type").Having("SUM(usage.consume) > 0").Order("total_consume DESC").Scan(&bySourceType).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	type MinuteUserStat struct {
+		Minute    string `json:"minute"`
+		UserCount int64  `json:"user_count"`
+	}
+
+	peakDate := time.Now()
+	if startDate != "" {
+		if t, err := parseDateOnly(startDate); err == nil {
+			peakDate = t
+		}
+	}
+	peakDayStart := time.Date(peakDate.Year(), peakDate.Month(), peakDate.Day(), 0, 0, 0, 0, peakDate.Location())
+	peakDayEnd := peakDayStart.Add(24 * time.Hour)
+
+	var usersPerMinute []MinuteUserStat
+	if err := db.Table("usage").
+		Select("DATE_FORMAT(usage.create_time, '%Y-%m-%d %H:%i:00') AS minute, COUNT(DISTINCT usage.account_id) AS user_count").
+		Where("usage.create_time >= ? AND usage.create_time < ?", peakDayStart, peakDayEnd).
+		Group("minute").
+		Order("minute ASC").
+		Scan(&usersPerMinute).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var peakUsers int64
+	var peakUsersMinute string
+	for _, stat := range usersPerMinute {
+		if stat.UserCount > peakUsers {
+			peakUsers = stat.UserCount
+			peakUsersMinute = stat.Minute
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"total_consume": result.TotalConsume,
-		"total_tokens":  result.TotalTokens,
-		"record_count":  result.RecordCount,
+		"total_consume":     result.TotalConsume,
+		"total_tokens":      result.TotalTokens,
+		"record_count":      result.RecordCount,
+		"by_source_type":    bySourceType,
+		"peak_users_date":   peakDayStart.Format("2006-01-02"),
+		"peak_users":        peakUsers,
+		"peak_users_minute": peakUsersMinute,
+		"users_per_minute":  usersPerMinute,
+	})
+}
+
+// GetMaxUsersToday 获取今天的最大用户数
+func GetMaxUsersToday(c *gin.Context) {
+	trackingService := service.NewUserTrackingService()
+
+	maxUsers, err := trackingService.GetMaxUsersForToday()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"max_users": maxUsers,
 	})
 }

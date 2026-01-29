@@ -100,6 +100,13 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 		}
 
 		// 管理后台路由（需要认证）
+		// 公共查询接口（无需登录）
+		public := api.Group("/public")
+		{
+			public.GET("/account-source/types", controller.ListAccountSourceTypesPublic)
+			public.GET("/usages", controller.PublicListUsagesByToken)
+		}
+
 		admin := api.Group("/admin")
 		admin.Use(middleware.AuthMiddleware()) // 添加认证中间件
 		{
@@ -130,6 +137,7 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			admin.GET("/usage", controller.ListUsages)
 			admin.POST("/usage/query", controller.QueryUsageByToken)
 			admin.GET("/usage/stats", controller.GetUsageStats)
+			admin.GET("/usage/max-users", controller.GetMaxUsersToday)
 			// 控制台日志（最近 N 行）
 			admin.GET("/console-logs", controller.ListConsoleLogs)
 			// 上游错误日志

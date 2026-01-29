@@ -2,6 +2,7 @@
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import Guide from './pages/Guide';
+import BillCheck from './pages/BillCheck';
 
 function App() {
     return (
@@ -23,6 +24,8 @@ function App() {
                 <Route path="/admin/:tab" element={<AdminDashboard />} />
 
                 {/* 404 重定向到 admin/sources */}
+                {/* 公开账单查询 */}
+                <Route path="/bill-check" element={<BillCheck />} />
                 <Route path="*" element={<Navigate to="/admin/sources" replace />} />
             </Routes>
         </BrowserRouter>

@@ -168,12 +168,35 @@ export interface Usage {
 
 export interface Paged<T> { items: T[]; page: number; size: number; total: number; total_pages: number; }
 
+export interface UsageStatsBySourceType {
+  source_type: string;
+  total_consume: number;
+  total_tokens: number;
+  record_count: number;
+}
+
+export interface UsageUsersPerMinuteStat {
+  minute: string;
+  user_count: number;
+}
+
+export interface UsageStatsResponse {
+  total_consume: number;
+  total_tokens: number;
+  record_count: number;
+  by_source_type: UsageStatsBySourceType[];
+  peak_users_date: string;
+  peak_users: number;
+  peak_users_minute: string;
+  users_per_minute: UsageUsersPerMinuteStat[];
+}
+
 export const usageAPI = {
   list: (params?: any) => api.get<any, Paged<Usage>>('/usage', { params }),
   getByToken: (customerKey: string, dates?: string[]) =>
     api.post<any, { total_consume: number; details: Usage[] }>('/usage/query', { customer_key: customerKey, dates }),
   getStats: (startDate?: string, endDate?: string) =>
-    api.get<any, any>('/usage/stats', { params: { start_date: startDate, end_date: endDate } }),
+    api.get<any, UsageStatsResponse>('/usage/stats', { params: { start_date: startDate, end_date: endDate } }),
 };
 
 
@@ -259,3 +282,23 @@ export const consoleLogAPI = {
 };
 
 
+
+// Public BillCheck endpoints
+export interface PublicUsageItem {
+  consume: number;
+  tokens: number;
+  create_time: string;
+  update_time: string;
+}
+
+export const publicMetaAPI = {
+  accountSourceTypes: (): Promise<{ types: string[] }> =>
+    publicApi.get<any, { types: string[] }>("/public/account-source/types"),
+};
+
+export const publicUsageAPI = {
+  list: (token: string, sourceType?: string, params?: { start_date?: string; end_date?: string }) =>
+    publicApi.get<any, { items: PublicUsageItem[] }>("/public/usages", {
+      params: { token, source_type: sourceType, ...(params || {}) },
+    }),
+};
