@@ -25,7 +25,10 @@ function App() {
 
                 {/* 404 重定向到 admin/sources */}
                 {/* 公开账单查询 */}
-                <Route path="/bill-check" element={<BillCheck />} />
+                <Route
+                    path={["/balance", "/bill-check"]}
+                    element={<BillCheck />}
+                />
                 <Route path="*" element={<Navigate to="/admin/sources" replace />} />
             </Routes>
         </BrowserRouter>
