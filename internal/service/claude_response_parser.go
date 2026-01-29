@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
@@ -74,66 +75,38 @@ func parseClaudeJSONResponse(body []byte) (*ClaudeUsageInfo, error) {
 }
 
 // parseClaudeSSEResponse 解析 SSE 流式响应
-// 支持两种格式:
-// 1. 标准 SSE: "data: {...}"
-// 2. 直接 JSON: "message_delta{...}" 或 "{...}"
+// 支持格式: event: xxx\ndata: {...}
 func parseClaudeSSEResponse(body []byte) (*ClaudeUsageInfo, error) {
-	scanner := bufio.NewScanner(bytes.NewReader(body))
 	var info ClaudeUsageInfo
 	var foundUsage bool
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
+	// 正则提取 model（从 message_start 事件）
+	modelRegex := regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
+	if matches := modelRegex.FindSubmatch(body); len(matches) > 1 {
+		modelStr := string(matches[1])
+		info.Model = &modelStr
+	}
 
-		var data string
+	// 正则提取 usage（优先从 message_delta 事件，因为它包含最终统计）
+	// 匹配: "usage":{"input_tokens":13,"output_tokens":10}
+	usageRegex := regexp.MustCompile(`"usage"\s*:\s*\{\s*"input_tokens"\s*:\s*(\d+)\s*,\s*"output_tokens"\s*:\s*(\d+)\s*\}`)
+	matches := usageRegex.FindAllSubmatch(body, -1)
 
-		// 处理标准 SSE 格式: "data: {...}"
-		if strings.HasPrefix(line, "data: ") {
-			data = strings.TrimPrefix(line, "data: ")
-			if data == "[DONE]" {
-				continue
-			}
-		} else {
-			// 处理直接 JSON 格式: "message_delta{...}" 或 "{...}"
-			// 提取 JSON 部分（从第一个 '{' 开始）
-			if idx := strings.Index(line, "{"); idx >= 0 {
-				data = line[idx:]
-			} else {
-				continue
-			}
-		}
-
-		var event ClaudeSSEEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			continue // 跳过无法解析的行
-		}
-
-		// 从 message_stop 或 message_delta 事件中提取 usage
-		if event.Type == "message_stop" || event.Type == "message_delta" {
-			if event.Usage != nil {
-				info.InputTokens = event.Usage.InputTokens
-				info.OutputTokens = event.Usage.OutputTokens
-				foundUsage = true
-			}
-		}
-
-		// 从 message_start 事件中提取 model 和初始 usage
-		if event.Type == "message_start" && event.Message != nil {
-			if event.Message.Model != "" {
-				info.Model = &event.Message.Model
-			}
-			if event.Message.Usage.InputTokens > 0 {
-				info.InputTokens = event.Message.Usage.InputTokens
-				foundUsage = true
-			}
+	// 使用最后一个匹配（message_delta 的 usage）
+	if len(matches) > 0 {
+		lastMatch := matches[len(matches)-1]
+		if len(lastMatch) >= 3 {
+			var inTokens, outTokens uint64
+			json.Unmarshal(lastMatch[1], &inTokens)
+			json.Unmarshal(lastMatch[2], &outTokens)
+			info.InputTokens = inTokens
+			info.OutputTokens = outTokens
+			foundUsage = true
 		}
 	}
 
 	if !foundUsage {
-		return nil, nil // 未找到官方 token 信息，返回 nil（将使用估算）
+		return nil, nil
 	}
 
 	return &info, nil
