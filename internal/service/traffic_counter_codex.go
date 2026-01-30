@@ -900,12 +900,18 @@ func (c *TokenUsageConsumer) processMessage(msg redis.XMessage) {
 	if modelStr != "" {
 		model = &modelStr
 	}
+	// 可选的原始消息体（当 tokens < 500 或 > 5000 会入库）
+	originStr, _ := msg.Values["origin_message"].(string)
+	var origin *string
+	if originStr != "" {
+		origin = &originStr
+	}
 
 	log.Printf("[消费] 处理消息: 用户=%s, tokens=%d (in=%d, out=%d, model=%s)",
 		maskKey(customerToken), tokens, inTokens, outTokens, modelStr)
 
 	// 写入 MySQL（按方向近似计费）
-	if err := c.writeToMySQL(customerToken, tokens, inTokens, outTokens, model, ""); err != nil {
+	if err := c.writeToMySQL(customerToken, tokens, inTokens, outTokens, model, "", origin); err != nil {
 		log.Printf("✗ 写入 MySQL 失败: %v", err)
 	} else {
 		log.Printf("✓ 写入 MySQL 成功: %s +%d tokens (in=%d, out=%d, model=%s)", maskKey(customerToken), tokens, inTokens, outTokens, modelStr)
@@ -913,7 +919,7 @@ func (c *TokenUsageConsumer) processMessage(msg redis.XMessage) {
 }
 
 // writeToMySQL 写入 MySQL 使用 UsageService
-func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, model *string, hash string) error {
+func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, model *string, hash string, originMessage *string) error {
 	// 2. 将 tokens 转换为消费金额（方向区分）
 	// 按官网每百万 tokens 单价近似计价，单位 USD
 	// 实际项目中应根据产品定价/账户类型计算
@@ -926,7 +932,7 @@ func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, i
 
 	// 3. 使用 UsageService 记录使用量
 	usageService := NewUsageService()
-	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model, nil); err != nil {
+	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model, originMessage); err != nil {
 		return fmt.Errorf("failed to record token usage: %w", err)
 	}
 

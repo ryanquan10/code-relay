@@ -112,6 +112,11 @@ func SendClaudeTokenUsageToStreamWithIO(customerToken string, tokens uint64, inT
 	return SendTokenUsageToStreamWithIOAndModel(customerToken, tokens, inTokens, outTokens, model)
 }
 
+// SendClaudeTokenUsageToStreamWithIOAndMessage 发送 Claude token + 原始消息体到 Redis Stream
+func SendClaudeTokenUsageToStreamWithIOAndMessage(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, model *string, originMessage *string) error {
+	return SendTokenUsageToStreamWithIOAndModelAndMessage(customerToken, tokens, inTokens, outTokens, model, originMessage)
+}
+
 // claudePricing Claude 定价结构（内部使用）
 type claudePricing struct {
 	InputPerM       float64 // 标准输入价格（每百万 tokens）
@@ -263,7 +268,7 @@ func ClaudeOpusBatchTokensToConsumeByIO(inTokens uint64, outTokens uint64) float
 // WriteClaudeToMySQL 写入 MySQL（Claude 定价）
 // 根据是否提供 in/out 拆分来计算更精确的消费金额
 // model: 可选的模型名称（例如 "claude-haiku-4-5-20251001"）
-func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, hash string, model *string) error {
+func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, hash string, model *string, originMessage *string) error {
 	// 检测模型类型并创建配置
 	config := DefaultClaudePricingConfig()
 	if model != nil {
@@ -279,7 +284,7 @@ func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, ou
 	}
 
 	usageService := NewUsageService()
-	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model, nil); err != nil {
+	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model, originMessage); err != nil {
 		return fmt.Errorf("failed to record token usage: %w", err)
 	}
 

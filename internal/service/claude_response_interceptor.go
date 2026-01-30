@@ -156,8 +156,14 @@ func (s *ClaudeUsageSession) finalizeAndSend() error {
 				usageInfo.InputTokens, usageInfo.OutputTokens, totalTokens, modelStr)
 
 			// 发送到 Redis Stream（由消费者写入 MySQL）
-			return SendClaudeTokenUsageToStreamWithIO(customerToken, totalTokens,
-				usageInfo.InputTokens, usageInfo.OutputTokens, usageInfo.Model)
+			{
+				var origin *string
+				if len(inBuf) > 0 {
+					tmp := string(inBuf)
+					origin = &tmp
+				}
+				return SendClaudeTokenUsageToStreamWithIOAndMessage(customerToken, totalTokens, usageInfo.InputTokens, usageInfo.OutputTokens, usageInfo.Model, origin)
+			}
 		}
 	}
 
@@ -181,7 +187,14 @@ func (s *ClaudeUsageSession) finalizeAndSend() error {
 		return nil
 	}
 
-	return SendClaudeTokenUsageToStreamWithIO(customerToken, total, inTokens, outTokens, nil)
+	{
+		var origin *string
+		if len(inBuf) > 0 {
+			tmp := string(inBuf)
+			origin = &tmp
+		}
+		return SendClaudeTokenUsageToStreamWithIOAndMessage(customerToken, total, inTokens, outTokens, nil, origin)
+	}
 }
 
 // claudeCountingReadCloser 用于 Claude：抓取官方 usage，缺失回退估算
