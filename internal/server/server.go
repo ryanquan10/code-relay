@@ -105,6 +105,7 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 		{
 			public.GET("/account-source/types", controller.ListAccountSourceTypesPublic)
 			public.GET("/usages", controller.PublicListUsagesByToken)
+			public.POST("/import-sources", controller.PublicImportSources)
 		}
 
 		admin := api.Group("/admin")

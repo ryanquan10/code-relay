@@ -140,13 +140,14 @@ func (Account) TableName() string {
 
 // Usage 使用量记录
 type Usage struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	AccountID  uint64    `gorm:"column:account_id;not null;index:idx_account_time" json:"account_id"`
-	TOKENS     uint64    `gorm:"column:tokens" json:"tokens"`
-	Consume    float64   `gorm:"column:consume;type:decimal(10,2);default:0" json:"consume"`
-	Model      *string   `gorm:"column:model;type:varchar(100)" json:"model,omitempty"`
-	CreateTime time.Time `gorm:"autoCreateTime;index:idx_account_time" json:"create_time"`
-	UpdateTime time.Time `gorm:"autoUpdateTime" json:"update_time"`
+	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	AccountID     uint64    `gorm:"column:account_id;not null;index:idx_account_time" json:"account_id"`
+	TOKENS        uint64    `gorm:"column:tokens" json:"tokens"`
+	Consume       float64   `gorm:"column:consume;type:decimal(10,2);default:0" json:"consume"`
+	Model         *string   `gorm:"column:model;type:varchar(100)" json:"model,omitempty"`
+	OriginMessage *string   `gorm:"column:origin_message;type:text" json:"origin_message,omitempty"`
+	CreateTime    time.Time `gorm:"autoCreateTime;index:idx_account_time" json:"create_time"`
+	UpdateTime    time.Time `gorm:"autoUpdateTime" json:"update_time"`
 }
 
 func (Usage) TableName() string {

@@ -3,6 +3,7 @@ import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import Guide from './pages/Guide';
 import BillCheck from './pages/BillCheck';
+import Import from './pages/Import';
 
 function App() {
     return (
@@ -16,6 +17,9 @@ function App() {
 
                 {/* 教程页（公开访问） */}
                 <Route path="/guide" element={<Guide />} />
+
+                {/* 公开导入（无需登录） */}
+                <Route path="/import" element={<Import />} />
 
                 {/* /admin 重定向到 /admin/sources */}
                 <Route path="/admin" element={<Navigate to="/admin/sources" replace />} />

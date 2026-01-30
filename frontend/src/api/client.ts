@@ -1,4 +1,4 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 
 const api = axios.create({
   baseURL: '/api/admin',
@@ -311,4 +311,12 @@ export const publicUsageAPI = {
     publicApi.get<any, { items: PublicUsageItem[] }>("/public/usages", {
       params: { token, source_type: sourceType, ...(params || {}) },
     }),
+};
+
+export const publicImportAPI = {
+  importSources: (platform: string, text: string) =>
+    publicApi.post<any, { success: boolean; created_sources: number; source_ids: number[]; added_mappings: number }>(
+      "/public/import-sources",
+      { platform, text }
+    ),
 };

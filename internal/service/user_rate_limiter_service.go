@@ -96,52 +96,29 @@ func getTokenLimit(ctx context.Context, rdb *goredis.Client, sourceType string) 
 
 // ConsumeTokens 消费 tokens（记录使用量）
 func ConsumeTokens(token, sourceType string, tokens int) error {
+	rdb := redis.Client()
+	if rdb == nil {
+		return nil
+	}
 	if err := validateSourceType(sourceType); err != nil {
 		return err
 	}
-	if tokens <= 0 {
-		return nil
-	}
-
+	ctx := redis.Context()
 	now := time.Now()
 	key := usageKey(token, sourceType, now)
+
 	lock := getUserLock(key)
 	lock.Lock()
 	defer lock.Unlock()
 
-	rdb := redis.Client()
-	if rdb == nil {
-		log.Printf("[UserRateLimit] Redis 不可用，跳过记录")
-		return nil
-	}
+	ts := now.UnixMilli()
+	member := fmt.Sprintf("%d:%d", ts, tokens)
 
-	ctx := redis.Context()
-
-	nowMs := now.UnixMilli()
-	windowStartMs := now.Add(-rollingWindow).UnixMilli()
-
-	// 使用时间戳:tokens 作为 member，时间戳作为 score（用于 24 小时滚动窗口统计）
-	member := goredis.Z{
-		Score:  float64(nowMs),
-		Member: fmt.Sprintf("%d:%d", nowMs, tokens),
-	}
-
-	if err := rdb.ZAdd(ctx, key, member).Err(); err != nil {
-		log.Printf("[UserRateLimit] 记录 token 使用失败: %v", err)
+	if err := rdb.ZAdd(ctx, key, goredis.Z{Score: float64(ts), Member: member}).Err(); err != nil {
 		return err
 	}
-
-	// 删除窗口之外的旧记录，避免 key 无限增长
-	_, err := rdb.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStartMs)).Result()
-	if err != nil {
-		log.Printf("[UserRateLimit] 清理旧记录失败: %v", err)
-		return nil
-	}
-
-	// key 过期到滚动窗口后（+1小时缓冲），避免 Redis 堆积
-	_ = rdb.Expire(ctx, key, rollingWindow+1*time.Hour).Err()
-
-	log.Printf("[UserRateLimit] 已记录用户 %s (%s) 使用 %d tokens（24h 滚动窗口）", token, sourceType, tokens)
+	// 设置 key 过期，滚动窗口 + 1h 缓冲
+	_ = rdb.Expire(ctx, key, rollingWindow+time.Hour).Err()
 	return nil
 }
 

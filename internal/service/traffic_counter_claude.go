@@ -279,7 +279,7 @@ func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, ou
 	}
 
 	usageService := NewUsageService()
-	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model); err != nil {
+	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model, nil); err != nil {
 		return fmt.Errorf("failed to record token usage: %w", err)
 	}
 

@@ -27,7 +27,8 @@ func NewUsageService() *UsageService {
 // tokens: 使用的 token 数量
 // consume: 消耗的余额金额
 // model: 使用的模型（可选，例如 "claude-haiku-4-5-20251001"）
-func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, consume float64, model *string) error {
+// originMessage: 原始消息内容（可选，当 tokens < 500 或 > 5000 时保存）
+func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, consume float64, model *string, originMessage *string) error {
 	// 1. 根据 customerToken 查找 Account
 	account, err := s.accountRepo.GetByToken(customerToken)
 
@@ -41,22 +42,29 @@ func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, con
 	// 2. 获取当前小时
 	now := time.Now()
 
-	// 3. 创建 Usage 记录
-	usage := &entity.Usage{
-		AccountID:  account.ID,
-		TOKENS:     tokens,
-		Consume:    consume,
-		Model:      model,
-		CreateTime: now,
-		UpdateTime: now,
+	// 3. 判断是否需要保存原始消息（tokens < 500 或 > 5000）
+	var messageToSave *string
+	if originMessage != nil && (tokens < 500 || tokens > 5000) {
+		messageToSave = originMessage
 	}
 
-	// 4. 保存到数据库
+	// 4. 创建 Usage 记录
+	usage := &entity.Usage{
+		AccountID:     account.ID,
+		TOKENS:        tokens,
+		Consume:       consume,
+		Model:         model,
+		OriginMessage: messageToSave,
+		CreateTime:    now,
+		UpdateTime:    now,
+	}
+
+	// 5. 保存到数据库
 	if err := s.usageRepo.Create(usage); err != nil {
 		return fmt.Errorf("failed to create usage record: %w", err)
 	}
 
-	// 5. 增加已使用余额 used_balance（如果 consume > 0）
+	// 6. 增加已使用余额 used_balance（如果 consume > 0）
 	if consume > 0 {
 		if err := s.accountRepo.IncrementUsedBalance(account.ID, consume); err != nil {
 			log.Printf("[警告] 增加 used_balance 失败: account_id=%d, consume=%.4f, error=%v",

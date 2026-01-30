@@ -926,7 +926,7 @@ func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, i
 
 	// 3. 使用 UsageService 记录使用量
 	usageService := NewUsageService()
-	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model); err != nil {
+	if err := usageService.RecordTokenUsage(customerToken, tokens, consume, model, nil); err != nil {
 		return fmt.Errorf("failed to record token usage: %w", err)
 	}
 
