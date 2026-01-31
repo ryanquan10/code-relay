@@ -188,6 +188,13 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 					log.Printf("[Claude] 请求体: %s", string(bodyBytes))
 				}
 				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+				// 直接将请求体内容传递给 session（确保 origin_message 能被记录）
+				if customerToken != "" {
+					if session, ok := ctx.Value(common.ClaudeUsageSessionContextKey).(*service.ClaudeUsageSession); ok && session != nil {
+						session.AppendContent(bodyBytes, "in")
+					}
+				}
 			}
 			if customerToken != "" {
 				if session, ok := ctx.Value(common.ClaudeUsageSessionContextKey).(*service.ClaudeUsageSession); ok && session != nil {
