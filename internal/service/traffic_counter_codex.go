@@ -1014,3 +1014,44 @@ func GetUsageFromMySQL(customerToken string, dates []string) (float64, error) {
 func GetUsageFromRedis(customerToken string, dates []string) (float64, error) {
 	return GetUsageFromMySQL(customerToken, dates)
 }
+
+// SendTokenUsageToStreamWithIOAndModelAndMessage 将 token 使用量发送到 Redis Stream，附带 in/out、model（可选）与原始消息（可选）
+// originMessage 仅在 tokens < 500 或 > 5000 时随消息发送，避免 Stream 负载过大；与 UsageService 的入库策略保持一致。
+func SendTokenUsageToStreamWithIOAndModelAndMessage(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, model *string, originMessage *string) error {
+	client := redisstore.Client()
+	if client == nil {
+		return fmt.Errorf("Redis 客户端未初始化")
+	}
+	ctx := redisstore.Context()
+
+	data := map[string]interface{}{
+		"customer_key":  customerToken,
+		"tokens":        strconv.FormatUint(tokens, 10),
+		"input_tokens":  strconv.FormatUint(inTokens, 10),
+		"output_tokens": strconv.FormatUint(outTokens, 10),
+	}
+	if model != nil && *model != "" {
+		data["model"] = *model
+	}
+	// 与 usage_service 的保存策略保持一致，降低 Stream 压力
+	if originMessage != nil && (tokens < 500 || tokens > 5000) {
+		msg := *originMessage
+		// 保护性截断，避免过长消息撑爆 Stream；UTF-8 字节层面限制
+		const maxBytes = 8192
+		if len(msg) > maxBytes {
+			msg = msg[:maxBytes]
+		}
+		data["origin_message"] = msg
+	}
+
+	_, err := client.XAdd(ctx, &redis.XAddArgs{
+		Stream: StreamKey,
+		MaxLen: StreamMaxLen,
+		Approx: true,
+		Values: data,
+	}).Result()
+	if err != nil {
+		return fmt.Errorf("写入 Stream 失败: %w", err)
+	}
+	return nil
+}

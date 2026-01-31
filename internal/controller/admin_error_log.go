@@ -1,4 +1,4 @@
-﻿package controller
+package controller
 
 import (
 	"net/http"
@@ -53,7 +53,7 @@ func ListErrorLogs(c *gin.Context) {
 		}
 	}
 
-	if err := q.Order("created_at DESC").Limit(limit).Find(&logs).Error; err != nil {
+	if err := q.Order("created_at DESC, id DESC").Limit(limit).Find(&logs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

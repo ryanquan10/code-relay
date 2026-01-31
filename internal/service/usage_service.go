@@ -27,7 +27,7 @@ func NewUsageService() *UsageService {
 // tokens: 使用的 token 数量
 // consume: 消耗的余额金额
 // model: 使用的模型（可选，例如 "claude-haiku-4-5-20251001"）
-// originMessage: 原始消息内容（可选，当 tokens < 50 或 > 50000 时保存）
+// originMessage: 原始消息内容（可选，当 tokens < 500 或 > 5000 时保存）
 func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, consume float64, model *string, originMessage *string) error {
 	// 1. 根据 customerToken 查找 Account
 	account, err := s.accountRepo.GetByToken(customerToken)
@@ -44,7 +44,7 @@ func (s *UsageService) RecordTokenUsage(customerToken string, tokens uint64, con
 
 	// 3. 判断是否需要保存原始消息（tokens < 500 或 > 5000）
 	var messageToSave *string
-	if originMessage != nil && (tokens < 50 || tokens > 50000) {
+	if originMessage != nil && (tokens < 500 || tokens > 5000) {
 		messageToSave = originMessage
 	}
 
