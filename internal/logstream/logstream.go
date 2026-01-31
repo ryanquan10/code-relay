@@ -17,14 +17,19 @@ type writer struct {
 var (
 	global struct {
 		mu       sync.RWMutex
-		lines    []string
-		capacity int
+		lines    []string // ring buffer (fixed size after init)
+		head     int      // next write position
+		size     int      // current number of items
+		capacity int      // max capacity
 	}
 	globalWriter = &writer{}
 )
 
 func init() {
 	global.capacity = 1000 // default ring size
+	global.lines = make([]string, global.capacity)
+	global.head = 0
+	global.size = 0
 }
 
 // Writer returns a shared io.Writer that fans in all writes into the ring buffer.
@@ -35,14 +40,22 @@ func Writer() io.Writer { return globalWriter }
 func Recent(n int) []string {
 	global.mu.RLock()
 	defer global.mu.RUnlock()
-	if n <= 0 || len(global.lines) == 0 {
+	if n <= 0 || global.size == 0 {
 		return []string{}
 	}
-	if n > len(global.lines) {
-		n = len(global.lines)
+	if n > global.size {
+		n = global.size
 	}
 	out := make([]string, n)
-	copy(out, global.lines[len(global.lines)-n:])
+
+	// Calculate start position in ring buffer
+	start := (global.head - n + global.capacity) % global.capacity
+
+	// Copy from ring buffer to output
+	for i := 0; i < n; i++ {
+		idx := (start + i) % global.capacity
+		out[i] = global.lines[idx]
+	}
 	return out
 }
 
@@ -53,10 +66,37 @@ func SetCapacity(n int) {
 	}
 	global.mu.Lock()
 	defer global.mu.Unlock()
-	global.capacity = n
-	if len(global.lines) > n {
-		global.lines = append([]string{}, global.lines[len(global.lines)-n:]...)
+
+	// If new capacity is same, do nothing
+	if n == global.capacity {
+		return
 	}
+
+	// Create new ring buffer
+	newLines := make([]string, n)
+
+	// Copy existing data to new buffer
+	if global.size > 0 {
+		copySize := global.size
+		if copySize > n {
+			copySize = n
+		}
+
+		// Copy most recent items
+		start := (global.head - copySize + global.capacity) % global.capacity
+		for i := 0; i < copySize; i++ {
+			idx := (start + i) % global.capacity
+			newLines[i] = global.lines[idx]
+		}
+		global.head = copySize % n
+		global.size = copySize
+	} else {
+		global.head = 0
+		global.size = 0
+	}
+
+	global.lines = newLines
+	global.capacity = n
 }
 
 func (w *writer) Write(p []byte) (int, error) {
@@ -92,11 +132,15 @@ func appendLine(line string) {
 	defer global.mu.Unlock()
 	if global.capacity <= 0 {
 		global.capacity = 1000
+		global.lines = make([]string, global.capacity)
 	}
-	if len(global.lines) >= global.capacity {
-		// Drop oldest (simple slice move; acceptable for small capacity)
-		global.lines = append(global.lines[1:], l)
-		return
+
+	// Write to ring buffer at head position
+	global.lines[global.head] = l
+	global.head = (global.head + 1) % global.capacity
+
+	// Update size (max is capacity)
+	if global.size < global.capacity {
+		global.size++
 	}
-	global.lines = append(global.lines, l)
 }
