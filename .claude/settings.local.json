@@ -20,7 +20,8 @@
       "Bash(xxd:*)",
       "Bash(go env:*)",
       "Bash(go mod verify:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

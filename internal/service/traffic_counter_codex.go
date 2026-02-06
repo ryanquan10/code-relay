@@ -449,7 +449,7 @@ func extractOfficialUsageFromJSON(payload []byte) (inTokens uint64, outTokens ui
 		logMsg += fmt.Sprintf(" + 计算补全[%v]", calculatedFields)
 	}
 	logMsg += fmt.Sprintf(" | 结果: in=%d, out=%d, total=%d, model=%s", inTokens, outTokens, totalTokens, model)
-	log.Printf(logMsg)
+	log.Printf("%s", logMsg)
 
 	return inTokens, outTokens, totalTokens, model, true
 }

@@ -26,6 +26,13 @@ type GetAccountRequest struct {
 	Platform    string  `json:"platform"`
 }
 
+// DeliverProductRequest 按平台+内部产品码发货
+type DeliverProductRequest struct {
+	Token            string `json:"token"`
+	ProductInnerCode string `json:"product_inner_code"`
+	Platform         string `json:"platform"`
+}
+
 // AccountData 账号数据响应
 type AccountData struct {
 	AccountEmail    string  `json:"account_email"`
@@ -117,6 +124,68 @@ func (s *DeliveryService) GetAccount(req GetAccountRequest) (*AccountData, error
 	}, nil
 }
 
+// DeliverProduct 根据 token, platform, product_inner_code 发货，返回拼装文本
+func (s *DeliveryService) DeliverProduct(req DeliverProductRequest) (string, error) {
+	// 验证 token
+	const validToken = "secret_token11234567"
+	if req.Token != validToken {
+		return "", fmt.Errorf("invalid token")
+	}
+
+	// 查商品（platform + product_code）
+	product, err := s.repo.FindProductByInnerProductCode(req.ProductInnerCode)
+	if err != nil {
+		return "", fmt.Errorf("failed to find product: %w", err)
+	}
+	if product == nil {
+		return "", fmt.Errorf("product not found for platform %s and product_code %s", req.Platform, req.ProductInnerCode)
+	}
+
+	// 查可用账号（use_status=0）
+	account, err := s.repo.FindAvailableAccount(product.ID)
+	if err != nil {
+		return "", fmt.Errorf("failed to find available account: %w", err)
+	}
+	if account == nil {
+		return "", fmt.Errorf("no available account for product_id %d", product.ID)
+	}
+
+	// 标记为已使用，并设置 start_time
+	if err := s.repo.UpdateAccountUseStatus(account.ID, 1); err != nil {
+		return "", fmt.Errorf("failed to update account use_status: %w", err)
+	}
+
+	// 填充说明（支持 {TOKEN}/{token}、{account_email}/{account_password} 等）
+	desc := fillDescription(product.Description, account.AccountEmail, account.AccountPassword, account.Token)
+
+	var api string
+	if product.DownStreamURL != nil {
+		api = *product.DownStreamURL
+	}
+
+	var sb strings.Builder
+	sb.WriteString("详细教程:")
+	if desc != nil {
+		sb.WriteString(*desc)
+	}
+	sb.WriteString("  api:")
+	sb.WriteString(api)
+
+	// 若 token 存在且未在描述中出现，则追加 token 字段
+	if account.Token != nil && strings.TrimSpace(*account.Token) != "" {
+		includeToken := true
+		if desc != nil && strings.Contains(*desc, *account.Token) {
+			includeToken = false
+		}
+		if includeToken {
+			sb.WriteString("  ,token:")
+			sb.WriteString(*account.Token)
+		}
+	}
+
+	return sb.String(), nil
+}
+
 // fillDescription 用账号信息填充描述模板；若模板无占位符则在末尾追加“邮箱/密码”  token
 func fillDescription(tpl *string, email string, password *string, token *string) *string {
 	var base string
@@ -177,7 +246,7 @@ func replacePlaceholders(tpl string, email string, password *string, token *stri
 		key = strings.ReplaceAll(key, " ", "")
 
 		switch key {
-		case "accountemail", "email":
+		case "accountemail", "email", "accountemai": // 兼容 {account_emai}
 			return email
 		case "accountpassword", "password":
 			if password != nil {

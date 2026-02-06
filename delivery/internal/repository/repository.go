@@ -18,9 +18,27 @@ func NewDeliveryRepository(db *gorm.DB) *DeliveryRepository {
 	return &DeliveryRepository{db: db}
 }
 
-// FindProductByPlatform 根据 Platform、ProductCode 和可选的 SKU 查询 Product
-// 在 Product.Platforms JSON 数组中查找匹配的记录
-// 如果提供了 SKU，则必须匹配 SKU；如果没有提供 SKU，则只匹配 platform 和 product_code
+func (r *DeliveryRepository) FindProductByInnerProductCode(productCode string) (*entity.Product, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is not initialized")
+	}
+
+	var product entity.Product
+	err := r.db.Where("product_code = ?", productCode).
+		Order("CASE WHEN validity_days = 1 THEN 0 ELSE 1 END, id ASC").
+		First(&product).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get product by inner product code %s: %w", productCode, err)
+	}
+
+	//todo 找到product以後要按照其他方法一樣
+	return &product, nil
+}
+
 func (r *DeliveryRepository) FindProductByPlatform(platform, productCode string, sku *string) (*entity.Product, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is not initialized")

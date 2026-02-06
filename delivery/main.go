@@ -46,7 +46,7 @@ func main() {
 	// 初始化 repository
 	deliveryRepo := repository.NewDeliveryRepository(db)
 
-	// 初始化 service
+	// 初始化 service1 查看list。
 	deliveryService := service.NewDeliveryService(deliveryRepo)
 
 	// 初始化 handler
@@ -54,6 +54,7 @@ func main() {
 
 	// 设置路由
 	http.HandleFunc("/api/delivery/account", deliveryHandler.GetAccount)
+	http.HandleFunc("/api/delivery/product", deliveryHandler.GetAccountProductCode)
 
 	// 启动服务器
 	port := 8089 // 可以根据需要修改端口

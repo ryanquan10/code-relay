@@ -1,8 +1,10 @@
 package service
 
 import (
+	"fmt"
 	"io"
 	"log"
+	"regexp"
 	"sync"
 )
 
@@ -160,6 +162,25 @@ func (s *ClaudeUsageSession) finalizeAndSend() error {
 				var origin *string
 				if len(inBuf) > 0 {
 					tmp := string(inBuf)
+					// 构建带元信息的 origin_message
+					// 格式: [官方统计|in=X,out=Y|响应片段:...] 原始请求内容
+					metaInfo := fmt.Sprintf("[官方统计|in=%d,out=%d", usageInfo.InputTokens, usageInfo.OutputTokens)
+
+					// 添加响应片段（包含 input_tokens 和 output_tokens 的原文，100字以内）
+					if len(responseBuffer) > 0 {
+						// 使用正则查找包含 input_tokens 和 output_tokens 的片段
+						usagePattern := regexp.MustCompile(`"input_tokens"\s*:\s*\d+[^}]*"output_tokens"\s*:\s*\d+`)
+						if match := usagePattern.Find(responseBuffer); len(match) > 0 {
+							respSnippet := string(match)
+							if len(respSnippet) > 100 {
+								respSnippet = respSnippet[:100]
+							}
+							metaInfo += fmt.Sprintf("|响应:%s", respSnippet)
+						}
+					}
+					metaInfo += "]\n\n"
+
+					tmp = metaInfo + tmp
 					origin = &tmp
 				}
 				return SendClaudeTokenUsageToStreamWithIOAndMessage(customerToken, totalTokens, usageInfo.InputTokens, usageInfo.OutputTokens, usageInfo.Model, origin)
@@ -191,6 +212,10 @@ func (s *ClaudeUsageSession) finalizeAndSend() error {
 		var origin *string
 		if len(inBuf) > 0 {
 			tmp := string(inBuf)
+			// 构建带元信息的 origin_message（自行估算）
+			// 格式: [自行估算|in=X,out=Y] 原始请求内容
+			metaInfo := fmt.Sprintf("[自行估算|in=%d,out=%d]\n\n", inTokens, outTokens)
+			tmp = metaInfo + tmp
 			origin = &tmp
 		}
 		return SendClaudeTokenUsageToStreamWithIOAndMessage(customerToken, total, inTokens, outTokens, nil, origin)
