@@ -15,10 +15,11 @@ const (
 	ClaudeModelHaiku45  ClaudeModel = "haiku-4.5"  // Claude Haiku 4.5
 	ClaudeModelSonnet45 ClaudeModel = "sonnet-4.5" // Claude Sonnet 4.5
 	ClaudeModelOpus45   ClaudeModel = "opus-4.5"   // Claude Opus 4.5
+	ClaudeModelOpus46   ClaudeModel = "opus-4.6"   // Claude Opus 4.6 (2026年2月发布，定价同 Opus 4.5)
 )
 
 // DetectClaudeModel 从模型字符串检测 Claude 模型类型
-// 支持的格式: "claude-haiku-4-5-xxx", "claude-sonnet-4-5-xxx", "claude-opus-4-5-xxx"
+// 支持的格式: "claude-haiku-4-5-xxx", "claude-sonnet-4-5-xxx", "claude-opus-4-5-xxx", "claude-opus-4-6-xxx"
 // 也支持 JSON 格式: "model":"claude-sonnet-4-5-20250929"
 // 通过正则提取 claude- 后的模型名称，兼容未来新模型（如 claude-max、claude-plus 等）
 func DetectClaudeModel(modelStr string) ClaudeModel {
@@ -37,6 +38,11 @@ func DetectClaudeModel(modelStr string) ClaudeModel {
 		log.Printf("[调试] 从 JSON 提取完整模型名称: %s", extractedModel)
 	} else {
 		extractedModel = modelStr
+	}
+
+	// 检测是否为 Opus 4.6（优先检测版本号）
+	if regexp.MustCompile(`(?i)opus.*4[-_.]6`).MatchString(extractedModel) {
+		return ClaudeModelOpus46
 	}
 
 	// 提取 claude- 后面的第一个单词（模型类型）
@@ -65,10 +71,13 @@ func DetectClaudeModel(modelStr string) ClaudeModel {
 	// 根据模型名称匹配
 	switch modelName {
 	case "haiku":
+		// Haiku 目前只有 4.5 版本
 		return ClaudeModelHaiku45
 	case "opus":
+		// Opus 默认返回 4.5，4.6 已在上面优先检测
 		return ClaudeModelOpus45
 	case "sonnet":
+		// Sonnet 目前只有 4.5 版本
 		return ClaudeModelSonnet45
 	default:
 		// 未知模型，默认使用 Sonnet 4.5 计费
