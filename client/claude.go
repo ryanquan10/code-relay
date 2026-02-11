@@ -123,7 +123,7 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 		ctx = context.WithValue(ctx, common.ClaudeUsageSessionContextKey, session)
 
 		// 转换为上游 token（余额/有效性检查）
-		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken)
+		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken, req.URL.Path)
 		if err != nil {
 			log.Printf("[Claude TokenConvert] 转换失败: %v, 使用默认配置", err)
 			// 失败时沿用客户 token（便于容错）
@@ -402,7 +402,7 @@ func (c *claudeRelay) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		custTok = strings.TrimPrefix(custTok, "Bearer ")
 	}
 	if custTok != "" {
-		if _, err := c.tokenConvertService.ConvertTokenAndCheck(custTok); err != nil {
+		if _, err := c.tokenConvertService.ConvertTokenAndCheck(custTok, r.URL.Path); err != nil {
 			if strings.Contains(err.Error(), "insufficient balance") {
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.WriteHeader(http.StatusPaymentRequired)

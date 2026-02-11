@@ -49,7 +49,7 @@ func NewTokenConvertService() *TokenConvertService {
 // 1. 使用 token 从 Account 表查找账号
 // 2. 从 Account 获取 SourceID 和 ProductID
 // 3. 根据优先级降级机制选择可用的上游配置
-func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*UpstreamConfig, error) {
+func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string, requestPath string) (*UpstreamConfig, error) {
 	if customerToken == "" {
 		return nil, fmt.Errorf("customer token is empty")
 	}
@@ -96,14 +96,14 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 	if len(sources) == 0 {
 		log.Printf("[TokenConvert] Product (ID=%d) 没有配置任何上游源", account.ProductID)
 		// 降级：使用原始的 SourceID 查询（兼容旧逻辑）
-		return s.getUpstreamConfigBySourceID(account)
+		return s.getUpstreamConfigBySourceID(account, requestPath)
 	}
 
 	// 3. 优先级降级逻辑：根据 Redis 选择可用的上游
 	selectedSource := s.selectAvailableSource(sources)
 	if selectedSource == nil {
 		log.Printf("[TokenConvert] 所有上游源都不可用，降级使用默认配置")
-		return s.getUpstreamConfigBySourceID(account)
+		return s.getUpstreamConfigBySourceID(account, requestPath)
 	}
 
 	// 限流检查：检查是否超过 token 使用限制
@@ -113,7 +113,7 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 	}
 
 	// 4. 构建 UpstreamConfig
-	upstreamConfig, err := s.buildUpstreamConfig(account, selectedSource)
+	upstreamConfig, err := s.buildUpstreamConfig(account, selectedSource, requestPath)
 	if err != nil {
 		log.Printf("[TokenConvert] 构建上游配置失败: %v", err)
 		return nil, err
@@ -126,7 +126,7 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string) (*Upstr
 }
 
 // getUpstreamConfigBySourceID 根据 account.SourceID 查询上游配置（兼容旧逻辑）
-func (s *TokenConvertService) getUpstreamConfigBySourceID(account *entity.Account) (*UpstreamConfig, error) {
+func (s *TokenConvertService) getUpstreamConfigBySourceID(account *entity.Account, requestPath string) (*UpstreamConfig, error) {
 	accountSource, err := s.accountSourceRepo.GetByID(account.SourceID)
 	if err != nil {
 		log.Printf("[TokenConvert] 查询 AccountSource 失败: %v", err)
@@ -137,11 +137,11 @@ func (s *TokenConvertService) getUpstreamConfigBySourceID(account *entity.Accoun
 		return nil, fmt.Errorf("account_source not found")
 	}
 
-	return s.buildUpstreamConfig(account, accountSource)
+	return s.buildUpstreamConfig(account, accountSource, requestPath)
 }
 
 // buildUpstreamConfig 从 AccountSource 构建 UpstreamConfig
-func (s *TokenConvertService) buildUpstreamConfig(account *entity.Account, source *entity.AccountSource) (*UpstreamConfig, error) {
+func (s *TokenConvertService) buildUpstreamConfig(account *entity.Account, source *entity.AccountSource, requestPath string) (*UpstreamConfig, error) {
 	upstreamURL := ""
 	upstreamToken := ""
 	if source.UpstreamURL != nil {
@@ -184,8 +184,36 @@ func (s *TokenConvertService) buildUpstreamConfig(account *entity.Account, sourc
 	// 规范化 URL：移除末尾的斜杠
 	upstreamURL = strings.TrimRight(upstreamURL, "/")
 
+	// 拼接请求路径
+	// 如果请求路径以 /codex 开头，先剥离 /codex 前缀
+	if strings.HasPrefix(requestPath, "/codex/") {
+		requestPath = strings.TrimPrefix(requestPath, "/codex")
+	} else if requestPath == "/codex" {
+		requestPath = ""
+	}
+
+	// 如果 upstreamURL 已经包含了 /codex/v1 或 /api/v1 等路径
+	// 而 requestPath 也是 /v1/... 开头，则直接替换
+	// 例如：upstreamURL = https://openrouter.ai/api/v1, requestPath = /v1/chat/completions
+	// 应该变成：https://openrouter.ai/api/v1/chat/completions
+	if requestPath != "" && strings.HasPrefix(requestPath, "/v1/") {
+		// 检查 upstreamURL 是否以 /v1 结尾
+		if strings.HasSuffix(upstreamURL, "/v1") || strings.HasSuffix(upstreamURL, "/api/v1") {
+			// 去掉 requestPath 开头的 /v1
+			requestPath = strings.TrimPrefix(requestPath, "/v1")
+		}
+	}
+
+	// 确保请求路径以 / 开头
+	if requestPath != "" && !strings.HasPrefix(requestPath, "/") {
+		requestPath = "/" + requestPath
+	}
+
+	// 拼接完整的上游 URL
+	fullUpstreamURL := upstreamURL + requestPath
+
 	upstreamConfig := &UpstreamConfig{
-		UpstreamURL:   upstreamURL,
+		UpstreamURL:   fullUpstreamURL,
 		UpstreamToken: upstreamToken,
 		AccountID:     account.ID,
 		SourceID:      source.ID,

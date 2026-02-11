@@ -105,13 +105,6 @@ func (c *codexRelay) setupProxy(config common.RelayConfig) error {
 		// 调用原始的 Director
 		originalDirector(req)
 
-		// 将 /codex 前缀剥离
-		if strings.HasPrefix(req.URL.Path, "/codex/") {
-			req.URL.Path = strings.TrimPrefix(req.URL.Path, "/codex")
-		} else if req.URL.Path == "/codex" {
-			req.URL.Path = "/"
-		}
-
 		// 设置正确的 Host 头
 		req.Host = upstreamURL.Host
 		customerToken := req.Header.Get("Authorization")
@@ -130,7 +123,7 @@ func (c *codexRelay) setupProxy(config common.RelayConfig) error {
 		}
 
 		// 使用 token_convert_service 转换 token 和上流地址
-		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken)
+		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken, req.URL.Path)
 		if err != nil {
 			log.Printf("[Codex TokenConvert] 转换失败: %v, 使用默认配置", err)
 			// 如果转换失败，使用默认的 token 测试用于
@@ -429,7 +422,7 @@ func (c *codexRelay) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		custTok = strings.TrimPrefix(custTok, "Bearer ")
 	}
 	if custTok != "" {
-		if _, err := c.tokenConvertService.ConvertTokenAndCheck(custTok); err != nil {
+		if _, err := c.tokenConvertService.ConvertTokenAndCheck(custTok, r.URL.Path); err != nil {
 			if strings.Contains(err.Error(), "insufficient balance") {
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.WriteHeader(http.StatusPaymentRequired)
