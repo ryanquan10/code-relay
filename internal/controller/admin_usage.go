@@ -58,9 +58,9 @@ func ListUsages(c *gin.Context) {
 
 	var rows []row
 	if err := db.Table("usage").
-		Select("usage.id, usage.account_id, usage.tokens, usage.consume, usage.model, usage.create_time, account.token, source.source_name").
+		Select("usage.id, usage.account_id, usage.tokens, usage.consume, usage.model, usage.create_time, account.token, account_source.source_name").
 		Joins("LEFT JOIN account ON account.id = usage.account_id").
-		Joins("LEFT JOIN source ON account.source_id = source.id").
+		Joins("LEFT JOIN account_source ON account.source_id = account_source.id").
 		Order("usage.create_time DESC").
 		Limit(size).
 		Offset(offset).
