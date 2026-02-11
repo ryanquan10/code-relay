@@ -31,7 +31,7 @@ func ListErrorLogs(c *gin.Context) {
 
 	type ErrorLogWithSourceName struct {
 		entity.UpstreamErrorLog
-		SourceName string `json:"source_name"`
+		SourceName *string `json:"source_name"`
 	}
 
 	var logs []ErrorLogWithSourceName
