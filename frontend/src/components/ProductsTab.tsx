@@ -130,9 +130,13 @@ export default function ProductsTab() {
     try {
       setLoading(true);
       const data = await productAPI.list();
-      setProducts(data);
+      // 按产品名称排序
+      const sortedData = data.sort((a, b) =>
+        a.product_name.localeCompare(b.product_name, 'zh-CN')
+      );
+      setProducts(sortedData);
       // 提取所有产品组
-      const groups = Array.from(new Set(data.map(p => p.group).filter(g => g && g.trim()))) as string[];
+      const groups = Array.from(new Set(sortedData.map(p => p.group).filter(g => g && g.trim()))) as string[];
       setAvailableGroups(groups);
     } catch (error) {
       console.error('加载产品失败:', error);
@@ -208,10 +212,8 @@ export default function ProductsTab() {
       };
       if (editingProduct) {
         await productAPI.update(editingProduct.id, payload);
-        alert('更新成功');
       } else {
         await productAPI.create(payload);
-        alert('创建成功');
       }
       setShowModal(false);
       resetForm();
