@@ -152,6 +152,7 @@ func CreateAccount(c *gin.Context) {
 		ProductID       int64      `json:"product_id" binding:"required"`
 		UserID          *uint64    `json:"user_id"`
 		ExpireDate      *time.Time `json:"expire_date"`
+		ExpireDays      *int       `json:"expire_days"`
 		Remark          *string    `json:"remark"`
 	}
 
@@ -216,6 +217,12 @@ func CreateAccount(c *gin.Context) {
 		useStatus = *req.UseStatus
 	}
 
+	// 设置 expire_days：优先使用用户指定的值，否则使用产品的默认值
+	expireDays := product.ValidityDays
+	if req.ExpireDays != nil {
+		expireDays = *req.ExpireDays
+	}
+
 	account := &entity.Account{
 		AccountEmail:    strings.TrimSpace(req.AccountEmail),
 		AccountPassword: normalizeOptionalString(req.AccountPassword),
@@ -228,6 +235,7 @@ func CreateAccount(c *gin.Context) {
 		SourceID:        sourceID,
 		UserID:          req.UserID,
 		ExpireDate:      req.ExpireDate,
+		ExpireDays:      expireDays,
 		Remark:          normalizeOptionalString(req.Remark),
 	}
 
@@ -261,6 +269,7 @@ func BatchCreateAccounts(c *gin.Context) {
 			ProductID       int64      `json:"product_id" binding:"required"`
 			UserID          *uint64    `json:"user_id"`
 			ExpireDate      *time.Time `json:"expire_date"`
+			ExpireDays      *int       `json:"expire_days"`
 			Remark          *string    `json:"remark"`
 		} `json:"accounts"`
 	}
@@ -342,7 +351,7 @@ func BatchCreateAccounts(c *gin.Context) {
 		extracted := utils.ExtractAccountsMultiLevel(req.Text, fieldKeys)
 		for _, m := range extracted {
 			// 动态根据 fieldKeys 映射字段值
-			var email, password, tokenStr, balanceStr, usedBalStr, useStatusStr, prodStr, statusStr string
+			var email, password, tokenStr, balanceStr, usedBalStr, useStatusStr, prodStr, statusStr, expireDaysStr string
 
 			for _, key := range fieldKeys {
 				val, exists := getVal(m, key)
@@ -369,6 +378,8 @@ func BatchCreateAccounts(c *gin.Context) {
 					prodStr = val
 				} else if normalized == "status" {
 					statusStr = val
+				} else if normalized == "expiredays" {
+					expireDaysStr = val
 				}
 			}
 
@@ -455,6 +466,12 @@ func BatchCreateAccounts(c *gin.Context) {
 				status = "active"
 			}
 
+			// 设置 expire_days：优先使用用户指定的值，否则使用产品的默认值
+			expireDays := product.ValidityDays
+			if ed, err := strconv.Atoi(strings.TrimSpace(expireDaysStr)); err == nil && ed > 0 {
+				expireDays = ed
+			}
+
 			email = strings.TrimSpace(email)
 			if email != "" {
 				if _, ok := seenEmails[email]; ok || existsEmail(email) {
@@ -480,6 +497,7 @@ func BatchCreateAccounts(c *gin.Context) {
 				Status:          status,
 				ProductID:       productID,
 				SourceID:        sourceID,
+				ExpireDays:      expireDays, // 优先使用用户指定的值，否则使用产品默认值
 			}
 
 			if err := repo.Create(account); err != nil {
@@ -551,6 +569,12 @@ func BatchCreateAccounts(c *gin.Context) {
 			useStatus = *a.UseStatus
 		}
 
+		// 设置 expire_days：优先使用用户指定的值，否则使用产品的默认值
+		expireDays := product.ValidityDays
+		if a.ExpireDays != nil {
+			expireDays = *a.ExpireDays
+		}
+
 		account := &entity.Account{
 			AccountEmail:    email,
 			AccountPassword: normalizeOptionalString(a.AccountPassword),
@@ -563,6 +587,7 @@ func BatchCreateAccounts(c *gin.Context) {
 			SourceID:        sourceID,
 			UserID:          a.UserID,
 			ExpireDate:      a.ExpireDate,
+			ExpireDays:      expireDays,
 			Remark:          normalizeOptionalString(a.Remark),
 		}
 		if err := repo.Create(account); err != nil {

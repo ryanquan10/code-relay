@@ -43,6 +43,38 @@ func getUserLock(key string) *sync.RWMutex {
 	return lock
 }
 
+// normalizeSourceType 规范化 sourceType，支持模糊匹配
+// 例如：5.3, 5.0, codex-* 等都匹配到 codex
+func normalizeSourceType(sourceType string) string {
+	if sourceType == "" {
+		return ""
+	}
+
+	// 已经是标准类型，直接返回
+	if _, ok := defaultTokenLimit[sourceType]; ok {
+		return sourceType
+	}
+
+	// 模糊匹配：包含 codex 的都归为 codex
+	lowerType := strings.ToLower(sourceType)
+	if strings.Contains(lowerType, "codex") {
+		return "codex"
+	}
+
+	// 模糊匹配：包含 claude 的都归为 claude
+	if strings.Contains(lowerType, "claude") {
+		return "claude"
+	}
+
+	// 模糊匹配：数字版本号（如 5.3, 5.0）默认归为 codex
+	if len(sourceType) > 0 && (sourceType[0] >= '0' && sourceType[0] <= '9') {
+		return "codex"
+	}
+
+	// 其他情况默认返回 codex
+	return "codex"
+}
+
 func validateSourceType(sourceType string) error {
 	if _, ok := defaultTokenLimit[sourceType]; ok {
 		return nil
@@ -100,12 +132,13 @@ func ConsumeTokens(token, sourceType string, tokens int) error {
 	if rdb == nil {
 		return nil
 	}
-	if err := validateSourceType(sourceType); err != nil {
-		return err
-	}
+
+	// 规范化 sourceType（支持模糊匹配）
+	normalizedType := normalizeSourceType(sourceType)
+
 	ctx := redis.Context()
 	now := time.Now()
-	key := usageKey(token, sourceType, now)
+	key := usageKey(token, normalizedType, now)
 
 	lock := getUserLock(key)
 	lock.Lock()
@@ -145,10 +178,12 @@ func IsTokenLimitExceeded(token, sourceType string) (bool, error) {
 		}
 		return exceededCodex || exceededClaude, nil
 	}
-	if err := validateSourceType(sourceType); err != nil {
-		return false, err
-	}
-	return isTokenLimitExceededForType(ctx, rdb, token, sourceType, now)
+
+	// 规范化 sourceType（支持模糊匹配）
+	normalizedType := normalizeSourceType(sourceType)
+	log.Printf("[UserRateLimit] 原始 sourceType: %s, 规范化后: %s", sourceType, normalizedType)
+
+	return isTokenLimitExceededForType(ctx, rdb, token, normalizedType, now)
 }
 
 func isTokenLimitExceededForType(ctx context.Context, rdb *goredis.Client, token, sourceType string, now time.Time) (bool, error) {
