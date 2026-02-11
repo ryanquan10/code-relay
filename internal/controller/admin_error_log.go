@@ -36,8 +36,8 @@ func ListErrorLogs(c *gin.Context) {
 
 	var logs []ErrorLogWithSourceName
 	q := db.Table("upstream_error_log").
-		Select("upstream_error_log.*, source.source_name").
-		Joins("LEFT JOIN source ON upstream_error_log.source_id = source.id")
+		Select("upstream_error_log.*, account_source.source_name").
+		Joins("LEFT JOIN account_source ON upstream_error_log.source_id = account_source.id")
 
 	// 可选过滤条件
 	if v := c.Query("source_id"); v != "" {
