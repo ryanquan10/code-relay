@@ -134,26 +134,22 @@ func (c *claudeRelay) setupProxy(config common.RelayConfig) error {
 			ctx = context.WithValue(ctx, common.UpstreamConfigContextKey, upstreamConfig)
 			req.Header.Set("Authorization", "Bearer "+upstreamConfig.UpstreamToken)
 			req.Header.Set("x-api-key", upstreamConfig.UpstreamToken)
-			log.Printf("[Claude TokenConvert] 使用上流 URL: %s", upstreamConfig.UpstreamURL)
 			// 动态重写上游 URL（基于 account_source 配置）
 			if target, perr := url.Parse(upstreamConfig.UpstreamURL); perr != nil {
 				log.Printf("[Claude TokenConvert] 上游URL解析失败: %v, 继续使用默认上游", perr)
 			} else {
-				basePath := strings.TrimSuffix(target.Path, "/")
-				reqPath := req.URL.Path
-				if !strings.HasPrefix(reqPath, "/") {
-					reqPath = "/" + reqPath
-				}
-				if basePath == "" || basePath == "/" {
-					req.URL.Path = reqPath
-				} else if strings.HasSuffix(basePath, "/") {
-					req.URL.Path = basePath + strings.TrimPrefix(reqPath, "/")
-				} else {
-					req.URL.Path = basePath + reqPath
-				}
+				// 使用配置的完整 URL（包括 path）
 				req.URL.Scheme = target.Scheme
 				req.URL.Host = target.Host
 				req.Host = target.Host
+
+				// 如果配置的 URL 包含 path，直接使用它
+				if target.Path != "" && target.Path != "/" {
+					req.URL.Path = target.Path
+				}
+				// 否则保持当前的 req.URL.Path（已经在前面处理过 /claude 前缀）
+
+				log.Printf("[Claude TokenConvert] 使用上流 URL: %s -> 最终路径: %s", upstreamConfig.UpstreamURL, req.URL.Path)
 			}
 		}
 
