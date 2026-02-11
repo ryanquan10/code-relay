@@ -105,6 +105,13 @@ func (c *codexRelay) setupProxy(config common.RelayConfig) error {
 		// 调用原始的 Director
 		originalDirector(req)
 
+		// 将 /codex 前缀剥离
+		if strings.HasPrefix(req.URL.Path, "/codex/") {
+			req.URL.Path = strings.TrimPrefix(req.URL.Path, "/codex")
+		} else if req.URL.Path == "/codex" {
+			req.URL.Path = "/"
+		}
+
 		// 设置正确的 Host 头
 		req.Host = upstreamURL.Host
 		customerToken := req.Header.Get("Authorization")

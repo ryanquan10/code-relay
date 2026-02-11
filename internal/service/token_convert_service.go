@@ -181,6 +181,9 @@ func (s *TokenConvertService) buildUpstreamConfig(account *entity.Account, sourc
 		return nil, fmt.Errorf("upstream_token is empty for account_source")
 	}
 
+	// 规范化 URL：移除末尾的斜杠
+	upstreamURL = strings.TrimRight(upstreamURL, "/")
+
 	upstreamConfig := &UpstreamConfig{
 		UpstreamURL:   upstreamURL,
 		UpstreamToken: upstreamToken,
