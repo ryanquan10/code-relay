@@ -142,6 +142,7 @@ export default function ErrorLogTab() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">上游名称</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">源ID</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">账号ID</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">源类型</th>
@@ -154,7 +155,7 @@ export default function ErrorLogTab() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {logs.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-gray-500">暂无数据</td>
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">暂无数据</td>
                   </tr>
                 ) : (
                   logs.map((log) => (
@@ -165,6 +166,7 @@ export default function ErrorLogTab() {
                           <div className="text-xs text-gray-500">请求: {new Date(log.request_time).toLocaleString('zh-CN')}</div>
                         ) : null}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{log.source_name || '-'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{log.source_id}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{log.account_id}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-xs font-mono text-gray-700">{log.source_type}</td>

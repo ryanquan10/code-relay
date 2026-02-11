@@ -161,6 +161,7 @@ export interface Usage {
   user_id: number;
   account_id: number;
   customer_key: string;
+  source_name?: string | null;
   tokens: number;
   consume: number;
   model?: string | null;
@@ -266,6 +267,7 @@ export interface UpstreamErrorLog {
   id: number;
   account_id: number;
   source_id: number;
+  source_name?: string;
   source_type: string;
   upstream_url?: string | null;
   request_path?: string | null;

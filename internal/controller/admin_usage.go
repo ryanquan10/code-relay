@@ -44,7 +44,7 @@ func ListUsages(c *gin.Context) {
 		return
 	}
 
-	// 连接 account 以取出 token 作为 customer_key
+	// 连接 account 以取出 token 作为 customer_key，连接 source 获取 source_name
 	type row struct {
 		ID         uint64    `json:"id"`
 		AccountID  uint64    `json:"account_id"`
@@ -53,12 +53,14 @@ func ListUsages(c *gin.Context) {
 		Model      *string   `json:"model,omitempty"`
 		CreateTime time.Time `json:"create_time"`
 		Token      *string   `json:"token"`
+		SourceName *string   `json:"source_name"`
 	}
 
 	var rows []row
 	if err := db.Table("usage").
-		Select("usage.id, usage.account_id, usage.tokens, usage.consume, usage.model, usage.create_time, account.token").
+		Select("usage.id, usage.account_id, usage.tokens, usage.consume, usage.model, usage.create_time, account.token, source.source_name").
 		Joins("LEFT JOIN account ON account.id = usage.account_id").
+		Joins("LEFT JOIN source ON account.source_id = source.id").
 		Order("usage.create_time DESC").
 		Limit(size).
 		Offset(offset).
@@ -73,6 +75,7 @@ func ListUsages(c *gin.Context) {
 		UserID      uint64  `json:"user_id"`
 		AccountID   uint64  `json:"account_id"`
 		CustomerKey string  `json:"customer_key"`
+		SourceName  *string `json:"source_name,omitempty"`
 		Tokens      uint64  `json:"tokens"`
 		Consume     float64 `json:"consume"`
 		Model       *string `json:"model,omitempty"`
@@ -91,6 +94,7 @@ func ListUsages(c *gin.Context) {
 			UserID:      0,
 			AccountID:   r.AccountID,
 			CustomerKey: ck,
+			SourceName:  r.SourceName,
 			Model:       r.Model,
 			Tokens:      r.Tokens,
 			Consume:     r.Consume,
