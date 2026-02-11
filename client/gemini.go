@@ -118,7 +118,7 @@ func (c *geminiRelay) setupProxy(config common.RelayConfig) error {
 
 		ctx := context.WithValue(req.Context(), common.CustomerTokenContextKey, customerToken)
 
-		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken)
+		upstreamConfig, err := c.tokenConvertService.ConvertTokenAndCheck(customerToken, req.URL.Path)
 		if err != nil {
 			log.Printf("[Gemini TokenConvert] 转换失败: %v, 使用默认配置", err)
 			req.Header.Set("Authorization", "Bearer "+customerToken)
@@ -340,7 +340,7 @@ func (c *geminiRelay) HandleRequest(w http.ResponseWriter, r *http.Request) {
 		custTok = strings.TrimPrefix(custTok, "Bearer ")
 	}
 	if custTok != "" {
-		if _, err := c.tokenConvertService.ConvertTokenAndCheck(custTok); err != nil {
+		if _, err := c.tokenConvertService.ConvertTokenAndCheck(custTok, r.URL.Path); err != nil {
 			if strings.Contains(err.Error(), "insufficient balance") {
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.WriteHeader(http.StatusPaymentRequired)
