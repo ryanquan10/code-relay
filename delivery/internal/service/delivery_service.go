@@ -149,7 +149,7 @@ func (s *DeliveryService) DeliverProduct(req DeliverProductRequest) (string, err
 				return "", fmt.Errorf("product not found for product_id %d", *req.ProductID)
 			}
 		} else {
-			// 没有 product_id，按照产品组最小的来发货
+			// 没有 product_id，按照产品组中 product_code 最小的来发货
 			products, err := s.repo.FindProductsByGroup(*req.Group)
 			if err != nil {
 				return "", fmt.Errorf("failed to find products by group: %w", err)
@@ -157,10 +157,10 @@ func (s *DeliveryService) DeliverProduct(req DeliverProductRequest) (string, err
 			if len(products) == 0 {
 				return "", fmt.Errorf("no products found for group %s", *req.Group)
 			}
-			// 选择 ID 最小的产品
+			// 选择 product_code 最小的产品
 			product = &products[0]
 			for i := range products {
-				if products[i].ID < product.ID {
+				if products[i].ProductCode < product.ProductCode {
 					product = &products[i]
 				}
 			}
