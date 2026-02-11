@@ -133,3 +133,40 @@ func (r *DeliveryRepository) ListProductsByPlatform(platform, productCode string
 	}
 	return products, nil
 }
+
+// FindProductByID 根据产品ID查询产品
+func (r *DeliveryRepository) FindProductByID(productID int64) (*entity.Product, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is not initialized")
+	}
+
+	var product entity.Product
+	err := r.db.Where("id = ?", productID).First(&product).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get product by id %d: %w", productID, err)
+	}
+
+	return &product, nil
+}
+
+// FindProductsByGroup 根据产品组查询所有产品，按ID升序排列
+func (r *DeliveryRepository) FindProductsByGroup(group string) ([]entity.Product, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is not initialized")
+	}
+
+	var products []entity.Product
+	err := r.db.Where("`group` = ?", group).
+		Order("id ASC").
+		Find(&products).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to find products by group %s: %w", group, err)
+	}
+
+	return products, nil
+}

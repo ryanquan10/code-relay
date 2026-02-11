@@ -28,9 +28,11 @@ type GetAccountRequest struct {
 
 // DeliverProductRequest 按平台+内部产品码发货
 type DeliverProductRequest struct {
-	Token            string `json:"token"`
-	ProductInnerCode string `json:"product_inner_code"`
-	Platform         string `json:"platform"`
+	Token            string  `json:"token"`
+	ProductInnerCode string  `json:"product_inner_code"`
+	Platform         string  `json:"platform"`
+	Group            *string `json:"group,omitempty"`
+	ProductID        *int64  `json:"product_id,omitempty"`
 }
 
 // AccountData 账号数据响应
@@ -132,13 +134,46 @@ func (s *DeliveryService) DeliverProduct(req DeliverProductRequest) (string, err
 		return "", fmt.Errorf("invalid token")
 	}
 
-	// 查商品（platform + product_code）
-	product, err := s.repo.FindProductByInnerProductCode(req.ProductInnerCode)
-	if err != nil {
-		return "", fmt.Errorf("failed to find product: %w", err)
-	}
-	if product == nil {
-		return "", fmt.Errorf("product not found for platform %s and product_code %s", req.Platform, req.ProductInnerCode)
+	var product *entity.Product
+	var err error
+
+	// 如果有 group 参数，使用产品组逻辑
+	if req.Group != nil && strings.TrimSpace(*req.Group) != "" {
+		// 如果有 product_id，直接使用该产品
+		if req.ProductID != nil && *req.ProductID > 0 {
+			product, err = s.repo.FindProductByID(*req.ProductID)
+			if err != nil {
+				return "", fmt.Errorf("failed to find product by id: %w", err)
+			}
+			if product == nil {
+				return "", fmt.Errorf("product not found for product_id %d", *req.ProductID)
+			}
+		} else {
+			// 没有 product_id，按照产品组最小的来发货
+			products, err := s.repo.FindProductsByGroup(*req.Group)
+			if err != nil {
+				return "", fmt.Errorf("failed to find products by group: %w", err)
+			}
+			if len(products) == 0 {
+				return "", fmt.Errorf("no products found for group %s", *req.Group)
+			}
+			// 选择 ID 最小的产品
+			product = &products[0]
+			for i := range products {
+				if products[i].ID < product.ID {
+					product = &products[i]
+				}
+			}
+		}
+	} else {
+		// 原来的逻辑：查商品（platform + product_code）
+		product, err = s.repo.FindProductByInnerProductCode(req.ProductInnerCode)
+		if err != nil {
+			return "", fmt.Errorf("failed to find product: %w", err)
+		}
+		if product == nil {
+			return "", fmt.Errorf("product not found for platform %s and product_code %s", req.Platform, req.ProductInnerCode)
+		}
 	}
 
 	// 查可用账号（use_status=0）

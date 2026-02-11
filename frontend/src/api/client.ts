@@ -73,6 +73,7 @@ export interface Product {
   product_name: string;
   account_type: string;
   category?: string | null;
+  group?: string | null;
   icon?: string | null;
   image_url?: string | null;
   down_stream_url?: string | null;

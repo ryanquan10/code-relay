@@ -256,9 +256,10 @@ func BatchCreateAccounts(c *gin.Context) {
 		FieldKeys    []string `json:"field_keys"`
 		FieldKeysStr string   `json:"field_keys_str"`
 		// Defaults for text mode
-		ProductID int64  `json:"product_id"`
-		Status    string `json:"status"`
-		Accounts  []struct {
+		ProductID  int64   `json:"product_id"`
+		ProductIDs []int64 `json:"product_ids"` // Support multiple product IDs
+		Status     string  `json:"status"`
+		Accounts   []struct {
 			AccountEmail    string     `json:"account_email"`
 			AccountPassword *string    `json:"account_password"`
 			Token           *string    `json:"token"`
@@ -518,87 +519,177 @@ func BatchCreateAccounts(c *gin.Context) {
 	}
 
 	// Structured accounts path (original)
-	for _, a := range req.Accounts {
-		if strings.TrimSpace(a.Status) == "" {
-			failed++
-			continue
+	// If product_ids is provided, generate accounts for each product
+	if len(req.ProductIDs) > 0 && len(req.Accounts) > 0 {
+		// Multi-product batch generation mode
+		for _, productID := range req.ProductIDs {
+			for _, a := range req.Accounts {
+				if strings.TrimSpace(a.Status) == "" {
+					failed++
+					continue
+				}
+				product, err := getProductByID(db, productID)
+				if err != nil {
+					failed++
+					continue
+				}
+				sourceID, err := getDefaultSourceID(db, product.ID)
+				if err != nil {
+					failed++
+					continue
+				}
+				token := normalizeOptionalString(a.Token)
+				if token == nil {
+					generatedToken, err := buildDefaultToken(product.ProductCode)
+					if err != nil {
+						failed++
+						continue
+					}
+					token = &generatedToken
+				}
+				email := strings.TrimSpace(a.AccountEmail)
+				if email != "" {
+					if _, ok := seenEmails[email]; ok || existsEmail(email) {
+						failed++
+						continue
+					}
+				}
+				if token != nil && strings.TrimSpace(*token) != "" {
+					tok := strings.TrimSpace(*token)
+					if _, ok := seenTokens[tok]; ok || existsToken(tok) {
+						failed++
+						continue
+					}
+				}
+				balance := product.DefaultBalance
+				if a.Balance != nil {
+					balance = *a.Balance
+				}
+				usedBalance := 0.0
+				if a.UsedBalance != nil {
+					usedBalance = *a.UsedBalance
+				}
+				useStatus := 0
+				if a.UseStatus != nil {
+					useStatus = *a.UseStatus
+				}
+
+				expireDays := product.ValidityDays
+				if a.ExpireDays != nil {
+					expireDays = *a.ExpireDays
+				}
+
+				account := &entity.Account{
+					AccountEmail:    email,
+					AccountPassword: normalizeOptionalString(a.AccountPassword),
+					Token:           token,
+					Balance:         balance,
+					UsedBalance:     usedBalance,
+					UseStatus:       useStatus,
+					Status:          strings.TrimSpace(a.Status),
+					ProductID:       productID,
+					SourceID:        sourceID,
+					UserID:          a.UserID,
+					ExpireDate:      a.ExpireDate,
+					ExpireDays:      expireDays,
+					Remark:          normalizeOptionalString(a.Remark),
+				}
+				if err := repo.Create(account); err != nil {
+					failed++
+				} else {
+					success++
+					if email != "" {
+						seenEmails[email] = struct{}{}
+					}
+					if token != nil && strings.TrimSpace(*token) != "" {
+						seenTokens[strings.TrimSpace(*token)] = struct{}{}
+					}
+				}
+			}
 		}
-		product, err := getProductByID(db, a.ProductID)
-		if err != nil {
-			failed++
-			continue
-		}
-		sourceID, err := getDefaultSourceID(db, product.ID)
-		if err != nil {
-			failed++
-			continue
-		}
-		token := normalizeOptionalString(a.Token)
-		if token == nil {
-			generatedToken, err := buildDefaultToken(product.ProductCode)
+	} else {
+		// Single product mode (original behavior)
+		for _, a := range req.Accounts {
+			if strings.TrimSpace(a.Status) == "" {
+				failed++
+				continue
+			}
+			product, err := getProductByID(db, a.ProductID)
 			if err != nil {
 				failed++
 				continue
 			}
-			token = &generatedToken
-		}
-		email := strings.TrimSpace(a.AccountEmail)
-		if email != "" {
-			if _, ok := seenEmails[email]; ok || existsEmail(email) {
+			sourceID, err := getDefaultSourceID(db, product.ID)
+			if err != nil {
 				failed++
 				continue
 			}
-		}
-		if token != nil && strings.TrimSpace(*token) != "" {
-			tok := strings.TrimSpace(*token)
-			if _, ok := seenTokens[tok]; ok || existsToken(tok) {
-				failed++
-				continue
+			token := normalizeOptionalString(a.Token)
+			if token == nil {
+				generatedToken, err := buildDefaultToken(product.ProductCode)
+				if err != nil {
+					failed++
+					continue
+				}
+				token = &generatedToken
 			}
-		}
-		balance := product.DefaultBalance
-		if a.Balance != nil {
-			balance = *a.Balance
-		}
-		usedBalance := 0.0
-		if a.UsedBalance != nil {
-			usedBalance = *a.UsedBalance
-		}
-		useStatus := 0
-		if a.UseStatus != nil {
-			useStatus = *a.UseStatus
-		}
-
-		// 设置 expire_days：优先使用用户指定的值，否则使用产品的默认值
-		expireDays := product.ValidityDays
-		if a.ExpireDays != nil {
-			expireDays = *a.ExpireDays
-		}
-
-		account := &entity.Account{
-			AccountEmail:    email,
-			AccountPassword: normalizeOptionalString(a.AccountPassword),
-			Token:           token,
-			Balance:         balance,
-			UsedBalance:     usedBalance,
-			UseStatus:       useStatus,
-			Status:          strings.TrimSpace(a.Status),
-			ProductID:       a.ProductID,
-			SourceID:        sourceID,
-			UserID:          a.UserID,
-			ExpireDate:      a.ExpireDate,
-			ExpireDays:      expireDays,
-			Remark:          normalizeOptionalString(a.Remark),
-		}
-		if err := repo.Create(account); err != nil {
-			failed++
-		} else {
-			success++
+			email := strings.TrimSpace(a.AccountEmail)
 			if email != "" {
-				seenEmails[email] = struct{}{}
+				if _, ok := seenEmails[email]; ok || existsEmail(email) {
+					failed++
+					continue
+				}
 			}
 			if token != nil && strings.TrimSpace(*token) != "" {
-				seenTokens[strings.TrimSpace(*token)] = struct{}{}
+				tok := strings.TrimSpace(*token)
+				if _, ok := seenTokens[tok]; ok || existsToken(tok) {
+					failed++
+					continue
+				}
+			}
+			balance := product.DefaultBalance
+			if a.Balance != nil {
+				balance = *a.Balance
+			}
+			usedBalance := 0.0
+			if a.UsedBalance != nil {
+				usedBalance = *a.UsedBalance
+			}
+			useStatus := 0
+			if a.UseStatus != nil {
+				useStatus = *a.UseStatus
+			}
+
+			expireDays := product.ValidityDays
+			if a.ExpireDays != nil {
+				expireDays = *a.ExpireDays
+			}
+
+			account := &entity.Account{
+				AccountEmail:    email,
+				AccountPassword: normalizeOptionalString(a.AccountPassword),
+				Token:           token,
+				Balance:         balance,
+				UsedBalance:     usedBalance,
+				UseStatus:       useStatus,
+				Status:          strings.TrimSpace(a.Status),
+				ProductID:       a.ProductID,
+				SourceID:        sourceID,
+				UserID:          a.UserID,
+				ExpireDate:      a.ExpireDate,
+				ExpireDays:      expireDays,
+				Remark:          normalizeOptionalString(a.Remark),
+			}
+			if err := repo.Create(account); err != nil {
+				failed++
+			} else {
+				success++
+				if email != "" {
+					seenEmails[email] = struct{}{}
+				}
+				if token != nil && strings.TrimSpace(*token) != "" {
+					seenTokens[strings.TrimSpace(*token)] = struct{}{}
+				}
 			}
 		}
 	}

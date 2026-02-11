@@ -34,6 +34,7 @@ type Product struct {
 	ProductName      string        `db:"product_name" json:"product_name" gorm:"type:varchar(200);not null"`
 	AccountType      string        `db:"account_type" json:"account_type" gorm:"type:varchar(100)"`
 	Category         *string       `db:"category" json:"category" gorm:"type:varchar(100);index"`
+	Group            *string       `db:"group" json:"group" gorm:"type:varchar(100);index"`
 	Icon             *string       `db:"icon" json:"icon" gorm:"type:varchar(255)"`
 	ImageURL         *string       `db:"image_url" json:"image_url" gorm:"type:varchar(255)"`
 	DownStreamURL    *string       `db:"down_stream_url" json:"down_stream_url" gorm:"type:varchar(255)"`

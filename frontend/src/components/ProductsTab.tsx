@@ -6,6 +6,7 @@ type ProductFormState = {
   product_name: string;
   account_type: string;
   category: string;
+  group: string;
   icon: string;
   image_url: string;
   down_stream_url: string;
@@ -54,6 +55,7 @@ const createDefaultFormData = (availableSources: Source[] = []): ProductFormStat
     product_name: '',
     account_type: getDefaultAccountType(availableSources, defaultSources),
     category: '',
+    group: '',
     icon: '',
     image_url: '',
     down_stream_url: '',
@@ -103,6 +105,7 @@ export default function ProductsTab() {
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState<ProductFormState>(createDefaultFormData());
+  const [availableGroups, setAvailableGroups] = useState<string[]>([]);
   const sourceLookup = new Map(sources.map((source) => [source.id, source]));
 
   const formatSourceList = (mappings?: ProductSource[]) => {
@@ -128,6 +131,9 @@ export default function ProductsTab() {
       setLoading(true);
       const data = await productAPI.list();
       setProducts(data);
+      // 提取所有产品组
+      const groups = Array.from(new Set(data.map(p => p.group).filter(g => g && g.trim()))) as string[];
+      setAvailableGroups(groups);
     } catch (error) {
       console.error('加载产品失败:', error);
       alert('加载产品失败');
@@ -178,6 +184,7 @@ export default function ProductsTab() {
         product_name: formData.product_name.trim(),
         account_type: formData.account_type.trim(),
         category: formData.category.trim(),
+        group: formData.group.trim() || null,
         icon: formData.icon.trim(),
         image_url: formData.image_url.trim(),
         down_stream_url: formData.down_stream_url.trim(),
@@ -222,6 +229,7 @@ export default function ProductsTab() {
       product_name: product.product_name,
       account_type: product.account_type,
       category: product.category || '',
+      group: product.group || '',
       icon: product.icon || '',
       image_url: product.image_url || '',
       down_stream_url: product.down_stream_url || '',
@@ -256,6 +264,7 @@ export default function ProductsTab() {
       product_name: product.product_name,
       account_type: product.account_type,
       category: product.category || '',
+      group: product.group || '',
       icon: product.icon || '',
       image_url: product.image_url || '',
       down_stream_url: product.down_stream_url || '',
@@ -656,7 +665,7 @@ const handleDelete = async (id: number) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">账号类型</label>
                   <input
@@ -676,6 +685,23 @@ const handleDelete = async (id: number) => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     placeholder="如: AI工具"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">产品组</label>
+                  <input
+                    type="text"
+                    list="group-options"
+                    value={formData.group}
+                    onChange={(e) => setFormData({ ...formData, group: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    placeholder="如: claude-dl"
+                  />
+                  <datalist id="group-options">
+                    {availableGroups.map((group) => (
+                      <option key={group} value={group} />
+                    ))}
+                  </datalist>
+                  <p className="text-xs text-gray-500 mt-1">同名产品组会被归为一组</p>
                 </div>
               </div>
 

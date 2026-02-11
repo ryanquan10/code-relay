@@ -42,6 +42,7 @@ export default function AccountsTab() {
     const [batchText, setBatchText] = useState('');
     const [batchFieldKeys, setBatchFieldKeys] = useState('account_email,account_password');
     const [batchCount, setBatchCount] = useState('1');
+    const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
 
     const generateRandomHex = (bytes: number) => {
         const buffer = new Uint8Array(bytes);
@@ -274,6 +275,38 @@ export default function AccountsTab() {
 
     const handleBatchCreate = async () => {
         const count = Number(batchCount);
+
+        // Check if using multi-product mode
+        if (selectedProductIds.length > 0) {
+            if (!Number.isInteger(count) || count <= 0) {
+                alert('请输入有效的数量');
+                return;
+            }
+
+            try {
+                const accounts = Array.from({ length: count }, () => ({
+                    status: batchDefaults.status,
+                    product_id: 0, // Will be overridden by product_ids
+                    use_status: batchDefaults.use_status,
+                }));
+                const result = await accountAPI.batchCreate({
+                    accounts,
+                    product_ids: selectedProductIds,
+                } as any);
+                alert(`批量新增完成！成功: ${result.success}, 失败: ${result.failed}`);
+                setShowBatchModal(false);
+                setShowGenerateModal(false);
+                setBatchText('');
+                setSelectedProductIds([]);
+                loadAccounts();
+            } catch (error) {
+                console.error('批量新增失败:', error);
+                alert('批量新增失败');
+            }
+            return;
+        }
+
+        // Original single product mode
         if (!batchDefaults.product_id) {
             alert('请选择批量新增的产品');
             return;
@@ -791,28 +824,44 @@ export default function AccountsTab() {
                         <h3 className="text-lg font-semibold mb-4">批量生成账号</h3>
                         <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800">
                             选择产品与数量后自动生成 Token，邮箱留空，额度取产品默认额度。
+                            <br />
+                            <strong>支持多选产品：</strong>选择多个产品时，每个产品都会生成指定数量的账号。
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div className="grid grid-cols-1 gap-4 mb-6">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">产品</label>
-                                <select
-                                    value={batchDefaults.product_id || ''}
-                                    onChange={(e) => setBatchDefaults({ ...batchDefaults, product_id: Number(e.target.value) })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                    required
-                                >
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    产品选择 {selectedProductIds.length > 0 && `(已选 ${selectedProductIds.length} 个)`}
+                                </label>
+                                <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-gray-50">
                                     {productsLoading ? (
-                                        <option value="" disabled>加载中...</option>
+                                        <div className="text-gray-500 text-sm">加载中...</div>
                                     ) : products.length === 0 ? (
-                                        <option value="" disabled>暂无可用产品</option>
+                                        <div className="text-gray-500 text-sm">暂无可用产品</div>
                                     ) : (
                                         products.map((product) => (
-                                            <option key={product.id} value={product.id}>
-                                                {product.product_name} ({product.product_code})
-                                            </option>
+                                            <label key={product.id} className="flex items-center py-2 hover:bg-gray-100 px-2 rounded cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedProductIds.includes(product.id)}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedProductIds([...selectedProductIds, product.id]);
+                                                        } else {
+                                                            setSelectedProductIds(selectedProductIds.filter(id => id !== product.id));
+                                                        }
+                                                    }}
+                                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-3"
+                                                />
+                                                <span className="text-sm text-gray-700">
+                                                    {product.product_name} ({product.product_code})
+                                                </span>
+                                            </label>
                                         ))
                                     )}
-                                </select>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    提示：可以选择多个产品，每个产品都会生成指定数量的账号
+                                </p>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">数量</label>
@@ -839,7 +888,10 @@ export default function AccountsTab() {
                         <div className="flex justify-end space-x-3">
                             <button
                                 type="button"
-                                onClick={() => setShowGenerateModal(false)}
+                                onClick={() => {
+                                    setShowGenerateModal(false);
+                                    setSelectedProductIds([]);
+                                }}
                                 className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
                             >
                                 取消
@@ -847,8 +899,9 @@ export default function AccountsTab() {
                             <button
                                 onClick={handleBatchCreate}
                                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition"
+                                disabled={selectedProductIds.length === 0}
                             >
-                                生成
+                                生成 {selectedProductIds.length > 0 && `(${selectedProductIds.length} 个产品)`}
                             </button>
                         </div>
                     </div>
