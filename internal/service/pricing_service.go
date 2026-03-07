@@ -198,6 +198,28 @@ func (s *PricingService) ListByAccountType() ([]entity.Pricing, error) {
 	return items, nil
 }
 
+// ListExistingPricings 列出 pricing 表中的现有记录（不依赖 product 表）
+// 用于列表接口兜底，避免上游初始化失败时直接 500。
+func (s *PricingService) ListExistingPricings() ([]entity.Pricing, error) {
+	db, err := s.ensureDB()
+	if err != nil {
+		return nil, err
+	}
+
+	if !db.Migrator().HasTable(&entity.Pricing{}) {
+		return []entity.Pricing{}, nil
+	}
+
+	var items []entity.Pricing
+	if err := db.Order("account_type ASC").Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to query existing pricing list: %w", err)
+	}
+	for i := range items {
+		items[i].Unit = normalizePricingUnit(items[i].Unit)
+	}
+	return items, nil
+}
+
 func (s *PricingService) GetOrInitByAccountType(accountType string) (*entity.Pricing, error) {
 	db, err := s.ensureDB()
 	if err != nil {

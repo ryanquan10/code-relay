@@ -30,7 +30,14 @@ func ListPricings(c *gin.Context) {
 	items, err := pricingService.ListByAccountType()
 	if err != nil {
 		log.Printf("[ListPricings] failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fallbackItems, fallbackErr := pricingService.ListExistingPricings()
+		if fallbackErr != nil {
+			log.Printf("[ListPricings] fallback failed: %v", fallbackErr)
+			c.JSON(http.StatusOK, []entity.Pricing{})
+			return
+		}
+		log.Printf("[ListPricings] fallback success: count=%d", len(fallbackItems))
+		c.JSON(http.StatusOK, fallbackItems)
 		return
 	}
 	log.Printf("[ListPricings] success: count=%d", len(items))
