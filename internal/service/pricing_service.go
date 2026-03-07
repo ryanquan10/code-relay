@@ -65,12 +65,8 @@ func (s *PricingService) EnsureDefaultsFromProducts() error {
 		return err
 	}
 
-	var accountTypes []string
-	if err := db.Model(&entity.Product{}).
-		Where("TRIM(account_type) <> ''").
-		Group("TRIM(account_type)").
-		Order("TRIM(account_type) ASC").
-		Pluck("TRIM(account_type)", &accountTypes).Error; err != nil {
+	accountTypes, err := s.listDistinctProductAccountTypes(db)
+	if err != nil {
 		return fmt.Errorf("failed to query distinct account_type from product: %w", err)
 	}
 
@@ -80,6 +76,31 @@ func (s *PricingService) EnsureDefaultsFromProducts() error {
 		}
 	}
 	return nil
+}
+
+func (s *PricingService) listDistinctProductAccountTypes(db *gorm.DB) ([]string, error) {
+	type accountTypeRow struct {
+		AccountType string `gorm:"column:account_type"`
+	}
+
+	var rows []accountTypeRow
+	if err := db.Model(&entity.Product{}).
+		Select("DISTINCT TRIM(account_type) AS account_type").
+		Where("TRIM(account_type) <> ''").
+		Order("account_type ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	accountTypes := make([]string, 0, len(rows))
+	for _, row := range rows {
+		accountType := strings.TrimSpace(row.AccountType)
+		if accountType == "" {
+			continue
+		}
+		accountTypes = append(accountTypes, accountType)
+	}
+	return accountTypes, nil
 }
 
 func (s *PricingService) ensurePricingForAccountType(db *gorm.DB, accountType string) error {
@@ -109,13 +130,9 @@ func (s *PricingService) ListByAccountType() ([]entity.Pricing, error) {
 
 	var items []entity.Pricing
 	if err := db.Table("pricing AS pr").
-		Select("pr.*").
-		Joins(`JOIN (
-			SELECT TRIM(account_type) AS account_type
-			FROM product
-			WHERE TRIM(account_type) <> ''
-			GROUP BY TRIM(account_type)
-		) pa ON pa.account_type = pr.account_type`).
+		Select("DISTINCT pr.*").
+		Joins("JOIN product p ON TRIM(p.account_type) = pr.account_type").
+		Where("TRIM(p.account_type) <> ''").
 		Order("pr.account_type ASC").
 		Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("failed to query pricing list by product account_type: %w", err)
