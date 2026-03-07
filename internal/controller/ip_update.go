@@ -5,6 +5,8 @@ import (
 	ipwatch "codex-relay/internal/ipwatch"
 	"codex-relay/internal/mysql"
 	"codex-relay/internal/redis"
+	"codex-relay/internal/service"
+	"codex-relay/pkg/entity"
 	"context"
 	"fmt"
 	"log"
@@ -180,7 +182,34 @@ func reconnectMySQL(jdbcURL string) error {
 		Hikari:          config.GetConfig().Spring.Datasource.Hikari,
 	}
 
-	return mysql.InitFromConfig(newConfig)
+	if err := mysql.InitFromConfig(newConfig); err != nil {
+		return err
+	}
+
+	db := mysql.DB()
+	if db == nil {
+		return fmt.Errorf("mysql db is nil after reconnect")
+	}
+
+	// 重连后补做迁移，避免因运行时重连导致新连接缺少表结构（例如 pricing）
+	if err := db.AutoMigrate(
+		&entity.AccountSource{},
+		&entity.Product{},
+		&entity.Pricing{},
+		&entity.AccountSourceProcut{},
+		&entity.Account{},
+		&entity.Usage{},
+		&entity.UpstreamErrorLog{},
+	); err != nil {
+		return fmt.Errorf("failed to automigrate after mysql reconnect: %w", err)
+	}
+
+	// 补齐 pricing 缺省数据（按 product.account_type）
+	if err := service.NewPricingService().EnsureDefaultsFromProducts(); err != nil {
+		return fmt.Errorf("failed to init pricing defaults after mysql reconnect: %w", err)
+	}
+
+	return nil
 }
 
 // extractDatabase 从 JDBC URL 中提取数据库名

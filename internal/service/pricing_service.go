@@ -60,11 +60,31 @@ func (s *PricingService) ensureDB() (*gorm.DB, error) {
 	return db, nil
 }
 
+func (s *PricingService) ensurePricingTable(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	if db.Migrator().HasTable(&entity.Pricing{}) {
+		return nil
+	}
+
+	log.Printf("[PricingService.ensurePricingTable] pricing table not found, attempting AutoMigrate")
+	if err := db.AutoMigrate(&entity.Pricing{}); err != nil {
+		return fmt.Errorf("failed to automigrate pricing table: %w", err)
+	}
+	return nil
+}
+
 // EnsureDefaultsFromProducts 根据 product.account_type 自动补齐 pricing 默认数据
 func (s *PricingService) EnsureDefaultsFromProducts() error {
 	db, err := s.ensureDB()
 	if err != nil {
 		log.Printf("[PricingService.EnsureDefaultsFromProducts] ensureDB failed: %v", err)
+		return err
+	}
+	if err := s.ensurePricingTable(db); err != nil {
+		log.Printf("[PricingService.EnsureDefaultsFromProducts] ensurePricingTable failed: %v", err)
 		return err
 	}
 
@@ -181,6 +201,9 @@ func (s *PricingService) ListByAccountType() ([]entity.Pricing, error) {
 func (s *PricingService) GetOrInitByAccountType(accountType string) (*entity.Pricing, error) {
 	db, err := s.ensureDB()
 	if err != nil {
+		return nil, err
+	}
+	if err := s.ensurePricingTable(db); err != nil {
 		return nil, err
 	}
 
