@@ -67,10 +67,10 @@ func (s *PricingService) EnsureDefaultsFromProducts() error {
 
 	var accountTypes []string
 	if err := db.Model(&entity.Product{}).
-		Select("account_type").
 		Where("TRIM(account_type) <> ''").
-		Group("account_type").
-		Pluck("account_type", &accountTypes).Error; err != nil {
+		Group("TRIM(account_type)").
+		Order("TRIM(account_type) ASC").
+		Pluck("TRIM(account_type)", &accountTypes).Error; err != nil {
 		return fmt.Errorf("failed to query distinct account_type from product: %w", err)
 	}
 
@@ -108,8 +108,17 @@ func (s *PricingService) ListByAccountType() ([]entity.Pricing, error) {
 	}
 
 	var items []entity.Pricing
-	if err := db.Order("account_type ASC").Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to query pricing list: %w", err)
+	if err := db.Table("pricing AS pr").
+		Select("pr.*").
+		Joins(`JOIN (
+			SELECT TRIM(account_type) AS account_type
+			FROM product
+			WHERE TRIM(account_type) <> ''
+			GROUP BY TRIM(account_type)
+		) pa ON pa.account_type = pr.account_type`).
+		Order("pr.account_type ASC").
+		Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to query pricing list by product account_type: %w", err)
 	}
 	for i := range items {
 		items[i].Unit = normalizePricingUnit(items[i].Unit)

@@ -15,7 +15,6 @@ const normalizeUnit = (value: string) => {
 export default function PricingTab() {
   const [rows, setRows] = useState<PricingRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
 
   const loadPricings = async () => {
@@ -34,20 +33,6 @@ export default function PricingTab() {
   useEffect(() => {
     loadPricings();
   }, []);
-
-  const handleSync = async () => {
-    try {
-      setSyncing(true);
-      await pricingAPI.sync();
-      await loadPricings();
-      alert('已从产品 account_type 同步计价项');
-    } catch (error) {
-      console.error('同步计价配置失败:', error);
-      alert('同步计价配置失败');
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const updateRow = (id: number, patch: Partial<PricingRow>) => {
     setRows((prev) =>
@@ -88,17 +73,10 @@ export default function PricingTab() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4">
         <div className="text-sm text-gray-600">
-          account_type 来源于 `product` 表（`select account_type from product group by account_type`）。
+          account_type 来源于 `product` 表，自动按 account_type 去重，无需手动同步。
         </div>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition"
-        >
-          {syncing ? '同步中...' : '同步 account_type'}
-        </button>
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -118,7 +96,7 @@ export default function PricingTab() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                    暂无计价数据，请先在产品里配置 account_type 再点同步。
+                    暂无计价数据，请先在产品里配置 account_type。
                   </td>
                 </tr>
               ) : (
@@ -193,4 +171,3 @@ export default function PricingTab() {
     </div>
   );
 }
-

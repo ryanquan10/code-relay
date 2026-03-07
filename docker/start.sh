@@ -13,6 +13,15 @@ echo ""
 # 切换到 docker 目录
 cd "$(dirname "$0")"
 
+# 拉取当前分支最新代码
+if command -v git > /dev/null 2>&1 && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    echo "[1/5] 拉取当前分支最新代码: ${CURRENT_BRANCH}"
+    git pull origin "${CURRENT_BRANCH}"
+else
+    echo "[1/5] 未检测到 Git 仓库或 Git 命令，跳过 git pull"
+fi
+
 # 检查 Docker 是否安装
 if ! command -v docker > /dev/null 2>&1; then
     echo "错误: Docker 未安装，请先安装 Docker"
@@ -39,11 +48,11 @@ if [ ! -f ".env" ]; then
 fi
 
 # 创建必要的目录
-echo "[1/4] 创建必要的目录..."
+echo "[2/5] 创建必要的目录..."
 mkdir -p config logs
 
 echo ""
-echo "[2/4] 构建 Docker 镜像..."
+echo "[3/5] 构建 Docker 镜像..."
 # 使用 docker compose 或 docker-compose
 if docker compose version > /dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
@@ -54,11 +63,11 @@ fi
 $DOCKER_COMPOSE build
 
 echo ""
-echo "[3/4] 启动服务..."
+echo "[4/5] 启动服务..."
 $DOCKER_COMPOSE up -d
 
 echo ""
-echo "[4/4] 检查服务状态..."
+echo "[5/5] 检查服务状态..."
 sleep 3
 $DOCKER_COMPOSE ps
 
