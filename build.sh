@@ -7,7 +7,7 @@ echo "========================================"
 echo ""
 
 echo "[1/3] 检查并安装前端依赖..."
-cd frontend
+cd internal/frontend
 if [ ! -d "node_modules" ]; then
     echo "正在安装前端依赖..."
     npm install
@@ -18,8 +18,8 @@ fi
 echo ""
 echo "[2/3] 构建前端..."
 npm run build
-cd ..
-echo "前端构建完成！输出目录: frontend/dist"
+cd ../..
+echo "前端构建完成！输出目录: internal/frontend/dist"
 
 echo ""
 echo "[3/3] 构建 Go 后端（嵌入前端）..."

@@ -53,7 +53,7 @@ type Product struct {
 	AutoDelivery     bool          `db:"auto_delivery" json:"auto_delivery" gorm:"default:false"`
 	SortOrder        int           `db:"sort_order" json:"sort_order" gorm:"default:0"`
 	Status           int           `db:"status" json:"status" gorm:"default:1;index"`
-	Platforms        PlatformArray `db:"platforms" json:"platforms" gorm:"type:jsonb;default:'[]'"`
+	Platforms        PlatformArray `db:"platforms" json:"platforms" gorm:"type:json"`
 	Version          int           `db:"version" json:"version" gorm:"default:0"` // 乐观锁：库存
 	CreateTime       time.Time     `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
 	UpdateTime       time.Time     `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`

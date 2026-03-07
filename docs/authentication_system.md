@@ -123,7 +123,7 @@ admin.Use(middleware.AuthMiddleware()) // 添加认证中间件
 
 ### 2. 前端实现
 
-#### 2.1 登录页面 (frontend/src/pages/Login.tsx:22-35)
+#### 2.1 登录页面 (internal/frontend/src/pages/Login.tsx:22-35)
 
 **功能**:
 1. 用户输入密码
@@ -132,7 +132,7 @@ admin.Use(middleware.AuthMiddleware()) // 添加认证中间件
 4. 保存用户信息到 `localStorage.user`
 5. 跳转到管理后台
 
-#### 2.2 请求拦截器 (frontend/src/api/client.ts:11-24)
+#### 2.2 请求拦截器 (internal/frontend/src/api/client.ts:11-24)
 
 **自动添加 Token**:
 ```typescript
@@ -147,7 +147,7 @@ api.interceptors.request.use((config) => {
 
 所有通过 `api` 发起的请求都会自动携带 token。
 
-#### 2.3 响应拦截器 (frontend/src/api/client.ts:26-40)
+#### 2.3 响应拦截器 (internal/frontend/src/api/client.ts:26-40)
 
 **自动处理 401 错误**:
 ```typescript
@@ -166,7 +166,7 @@ api.interceptors.response.use(
 );
 ```
 
-#### 2.4 路由保护 (frontend/src/pages/AdminDashboard.tsx:27-44)
+#### 2.4 路由保护 (internal/frontend/src/pages/AdminDashboard.tsx:27-44)
 
 **检查登录状态**:
 ```typescript
@@ -190,7 +190,7 @@ useEffect(() => {
 }, [navigate]);
 ```
 
-#### 2.5 登出功能 (frontend/src/components/Header.tsx:11-17)
+#### 2.5 登出功能 (internal/frontend/src/components/Header.tsx:11-17)
 
 **登出按钮**:
 ```typescript

@@ -3,25 +3,25 @@
 # ================================
 
 # -------------------- 阶段 1: 前端构建 --------------------
-FROM node:20.19.0-alpine AS frontend-builder
+FROM docker.m.daocloud.io/library/node:20.19.0-alpine AS frontend-builder
 
-WORKDIR /app/frontend
+WORKDIR /app/internal/frontend
 
 # 复制前端依赖文件
-COPY frontend/package*.json ./
+COPY internal/frontend/package*.json ./
 
 # 安装依赖（使用国内镜像加速）
 RUN npm config set registry https://registry.npmmirror.com && \
     npm install
 
 # 复制前端源码
-COPY frontend/ ./
+COPY internal/frontend/ ./
 
 # 构建前端
 RUN npm run build
 
 # -------------------- 阶段 2: Go 后端构建 --------------------
-FROM golang:1.24.0-alpine AS backend-builder
+FROM docker.m.daocloud.io/library/golang:1.24.0-alpine AS backend-builder
 
 WORKDIR /app
 
@@ -45,13 +45,13 @@ RUN go mod download
 COPY . .
 
 # 从前端构建阶段复制构建好的静态文件
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+COPY --from=frontend-builder /app/internal/frontend/dist ./internal/frontend/dist
 
 # 构建 Go 应用（使用 -s -w 减小体积）
 RUN go build -ldflags="-s -w" -o code-relay .
 
 # -------------------- 阶段 3: 最终运行镜像 --------------------
-FROM alpine:latest
+FROM docker.m.daocloud.io/library/alpine:latest
 
 WORKDIR /app
 

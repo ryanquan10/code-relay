@@ -19,6 +19,7 @@ func AddConsoleLog(line string) {
 // ListConsoleLogs Gin Handler
 func ListConsoleLogs(c *gin.Context) {
 	limit := 200
+	//字符串转整数
 	if v := c.Query("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			if n > 2000 {

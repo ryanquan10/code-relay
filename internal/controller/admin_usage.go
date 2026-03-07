@@ -317,7 +317,7 @@ func GetUsageStats(c *gin.Context) {
 		statsQuery = statsQuery.Where("usage.create_time <= ?", endDate)
 	}
 
-	var bySourceType []SourceTypeStat
+	bySourceType := make([]SourceTypeStat, 0)
 	// 按来源类型分组，按消费额倒序
 	if err := statsQuery.Group("account_source.source_type").Having("SUM(usage.consume) > 0").Order("total_consume DESC").Scan(&bySourceType).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -344,7 +344,7 @@ func GetUsageStats(c *gin.Context) {
 	peakDayEnd := peakDayStart.Add(24 * time.Hour)
 
 	// 计算每分钟使用人数
-	var usersPerMinute []MinuteUserStat
+	usersPerMinute := make([]MinuteUserStat, 0)
 	if err := db.Table("usage").
 		Select("DATE_FORMAT(usage.create_time, '%Y-%m-%d %H:%i:00') AS minute, COUNT(DISTINCT usage.account_id) AS user_count").
 		Where("usage.create_time >= ? AND usage.create_time < ?", peakDayStart, peakDayEnd).
@@ -365,7 +365,7 @@ func GetUsageStats(c *gin.Context) {
 	}
 
 	// 计算每分钟请求数
-	var requestsPerMinute []MinuteRequestStat
+	requestsPerMinute := make([]MinuteRequestStat, 0)
 	if err := db.Table("usage").
 		Select("DATE_FORMAT(usage.create_time, '%Y-%m-%d %H:%i:00') AS minute, COUNT(*) AS request_count").
 		Where("usage.create_time >= ? AND usage.create_time < ?", peakDayStart, peakDayEnd).

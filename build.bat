@@ -6,7 +6,7 @@ echo ========================================
 echo.
 
 echo [1/3] Checking frontend dependencies...
-cd frontend
+cd internal\frontend
 if not exist "node_modules" (
     echo Installing frontend dependencies...
     call npm install
@@ -24,12 +24,12 @@ echo [2/3] Building frontend...
 call npm run build
 if errorlevel 1 (
     echo Frontend build failed!
-    cd ..
+    cd ..\..
     pause
     exit /b 1
 )
-cd ..
-echo Frontend build complete! Output directory: frontend\dist
+cd ..\..
+echo Frontend build complete! Output directory: internal\frontend\dist
 
 echo.
 echo [3/3] Building Go backend (embedding frontend)...

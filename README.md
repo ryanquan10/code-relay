@@ -91,9 +91,9 @@ go build -o codex-relay.exe
 
 #### 编译前端
 ```bash
-cd frontend
+cd internal/frontend
 npm run build
-cd ..
+cd ../..
 ```
 
 #### 编译本地 IP 监控服务
@@ -229,7 +229,7 @@ C:\work\my-codex\
 │   ├── main.go                      # 主程序
 │   ├── start.bat                    # 启动脚本
 │   └── nslookup.exe                 # 可执行文件
-├── frontend/                        # 前端项目（React + TypeScript）
+├── internal/frontend/               # 前端项目（React + TypeScript）
 ├── docs/                            # 文档
 │   ├── authentication_system.md     # 认证系统文档
 │   ├── account_edit_feature.md      # 账号编辑功能文档

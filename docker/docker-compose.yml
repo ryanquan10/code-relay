@@ -6,7 +6,7 @@ services:
     container_name: code-relay
     restart: unless-stopped
     ports:
-      - "${SERVER_PORT:-8087}:8087"
+      - "${HOST_PORT:-8087}:${SERVER_PORT:-8087}"
     environment:
       # 服务端口
       - SERVER_PORT=${SERVER_PORT:-8087}

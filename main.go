@@ -18,6 +18,7 @@ import (
 	"codex-relay/internal/server"
 	"codex-relay/internal/service"
 	"codex-relay/internal/task"
+	"codex-relay/pkg/entity"
 )
 
 // buildJdbcURL replaces the host in a jdbc:mysql:// URL while preserving db and params.
@@ -91,6 +92,24 @@ func main() {
 			log.Printf("init mysql (after IP) non-fatal: %v", err)
 		} else {
 			log.Println("MySQL connection established")
+
+			// 自动迁移数据库表结构
+			db := mysql.DB()
+			if db != nil {
+				log.Println("Running AutoMigrate for database tables...")
+				if err := db.AutoMigrate(
+					&entity.AccountSource{},
+					&entity.Product{},
+					&entity.AccountSourceProcut{},
+					&entity.Account{},
+					&entity.Usage{},
+					&entity.UpstreamErrorLog{},
+				); err != nil {
+					log.Printf("AutoMigrate failed: %v", err)
+				} else {
+					log.Println("AutoMigrate completed successfully")
+				}
+			}
 		}
 		defer func() { _ = mysql.Close() }()
 	} else {

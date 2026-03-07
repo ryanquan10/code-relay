@@ -29,7 +29,8 @@ type Server struct {
 	frontendCmd *exec.Cmd
 }
 
-const indexPath = "frontend/dist/index.html"
+const frontendDistPath = "internal/frontend/dist"
+const indexPath = frontendDistPath + "/index.html"
 
 func serveIndex(c *gin.Context, frontendFS embed.FS) {
 	data, err := frontendFS.ReadFile(indexPath)
@@ -37,6 +38,9 @@ func serveIndex(c *gin.Context, frontendFS embed.FS) {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 }
 
@@ -181,7 +185,8 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			c.AbortWithStatus(http.StatusForbidden)
 			return
 		}
-		filePath := path.Join("frontend/dist", reqPath)
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		filePath := path.Join(frontendDistPath, strings.TrimPrefix(reqPath, "/"))
 		c.FileFromFS(filePath, http.FS(frontendFS))
 	})
 
@@ -198,7 +203,7 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 
 		// 如果请求的是静态文件（根据扩展名判断），尝试提供文件
 		if isStaticFile(reqPath) {
-			filePath := path.Join("frontend/dist", strings.TrimPrefix(reqPath, "/"))
+			filePath := path.Join(frontendDistPath, strings.TrimPrefix(reqPath, "/"))
 			// 尝试提供文件，如果失败 Gin 会自动返回 404
 			c.FileFromFS(filePath, http.FS(frontendFS))
 			return
@@ -280,7 +285,7 @@ func (s *Server) startFrontendDev() error {
 	}
 
 	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..")
-	frontendDir := filepath.Join(projectRoot, "frontend")
+	frontendDir := filepath.Join(projectRoot, "internal", "frontend")
 
 	if _, err := os.Stat(frontendDir); os.IsNotExist(err) {
 		return fmt.Errorf("前端目录不存在: %s", frontendDir)

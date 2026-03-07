@@ -38,7 +38,7 @@ scp codex-relay.exe user@keySwift.top:/opt/codex-relay/
 scp config/app.yaml user@keySwift.top:/opt/codex-relay/config/
 
 # 上传前端（如果需要）
-scp -r frontend/dist user@keySwift.top:/opt/codex-relay/frontend/
+scp -r internal/frontend/dist user@keySwift.top:/opt/codex-relay/internal/frontend/
 ```
 
 #### 启动服务

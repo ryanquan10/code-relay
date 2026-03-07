@@ -2,6 +2,7 @@ package controller
 
 import (
 	"codex-relay/internal/service"
+	"codex-relay/pkg/entity"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
@@ -36,6 +37,9 @@ func GetDailyUsage(c *gin.Context) {
 			"details": err.Error(),
 		})
 		return
+	}
+	if dailyUsages == nil {
+		dailyUsages = make([]entity.DailyUsage, 0)
 	}
 
 	var totalConsume float64
@@ -100,6 +104,9 @@ func GetDailyUsageByDateRange(c *gin.Context) {
 			"details": err.Error(),
 		})
 		return
+	}
+	if dailyUsages == nil {
+		dailyUsages = make([]entity.DailyUsage, 0)
 	}
 
 	var totalConsume float64
