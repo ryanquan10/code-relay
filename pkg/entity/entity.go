@@ -63,6 +63,22 @@ func (Product) TableName() string {
 	return "product"
 }
 
+// Pricing 计价配置（按 account_type 维度）
+type Pricing struct {
+	ID                int64     `db:"id" json:"id" gorm:"primaryKey;autoIncrement"`
+	AccountType       string    `db:"account_type" json:"account_type" gorm:"type:varchar(100);not null;uniqueIndex"`
+	InTokenUnitPrice  float64   `db:"in_token_unit_price" json:"in_token_unit_price" gorm:"type:decimal(18,8);default:0"`
+	OutTokenUnitPrice float64   `db:"out_token_unit_price" json:"out_token_unit_price" gorm:"type:decimal(18,8);default:0"`
+	TokenUnit         int64     `db:"token_unit" json:"token_unit" gorm:"default:1000000"`
+	Unit              string    `db:"unit" json:"unit" gorm:"type:varchar(10);default:'US'"`
+	CreateTime        time.Time `db:"create_time" json:"create_time" gorm:"autoCreateTime"`
+	UpdateTime        time.Time `db:"update_time" json:"update_time" gorm:"autoUpdateTime"`
+}
+
+func (Pricing) TableName() string {
+	return "pricing"
+}
+
 // ProductPlatform 产品平台关联
 type ProductPlatform struct {
 	ProductCode string  `db:"product_code" json:"product_code" gorm:"index;not null"`    // 商品在平台的Code

@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import SourcesTab from '../components/SourcesTab';
 import ProductsTab from '../components/ProductsTab';
+import PricingTab from '../components/PricingTab';
 import AccountsTab from '../components/AccountsTab';
 import UsageTab from '../components/UsageTab';
 import ErrorLogTab from '../components/ErrorLogTab';
@@ -17,6 +18,7 @@ type MenuConfig = {
 const menuConfig: Record<string, MenuConfig> = {
   sources: { title: '账号来源管理', component: SourcesTab },
   products: { title: '产品管理', component: ProductsTab },
+  pricing: { title: '计价模块', component: PricingTab },
   accounts: { title: '账号管理', component: AccountsTab },
   usage: { title: '使用量查看', component: UsageTab },
   'error-logs': { title: '错误日志', component: ErrorLogTab },

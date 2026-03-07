@@ -529,7 +529,7 @@ export default function AccountsTab() {
                 </div>
             </div>
             <div>
-                1000 tokens ≈ $0.0053（近似）。
+                额度消费以「计价模块」中的 account_type 计价配置为准。
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-hidden">

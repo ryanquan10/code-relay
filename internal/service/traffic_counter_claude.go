@@ -278,18 +278,21 @@ func ClaudeOpusBatchTokensToConsumeByIO(inTokens uint64, outTokens uint64) float
 // 根据是否提供 in/out 拆分来计算更精确的消费金额
 // model: 可选的模型名称（例如 "claude-haiku-4-5-20251001"）
 func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, hash string, model *string, originMessage *string) error {
-	// 检测模型类型并创建配置
-	config := DefaultClaudePricingConfig()
-	if model != nil {
-		config.Model = DetectClaudeModel(*model)
-	}
-
-	// 根据模型计算消费金额
-	var consume float64
-	if inTokens > 0 || outTokens > 0 {
-		consume = ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, config)
-	} else {
-		consume = ClaudeTokensToConsumeWithConfig(tokens, config)
+	pricingService := NewPricingService()
+	consume, pricingRule, accountType, calcErr := pricingService.CalculateConsumeByCustomerToken(customerToken, tokens, inTokens, outTokens)
+	if calcErr != nil {
+		// 兼容回退：保留原 Claude 模型计价
+		config := DefaultClaudePricingConfig()
+		if model != nil {
+			config.Model = DetectClaudeModel(*model)
+		}
+		if inTokens > 0 || outTokens > 0 {
+			consume = ClaudeTokensToConsumeByIOWithConfig(inTokens, outTokens, config)
+		} else {
+			consume = ClaudeTokensToConsumeWithConfig(tokens, config)
+		}
+		pricingRule = nil
+		log.Printf("[计价/Claude] 查询 pricing 失败，回退 Claude 内置模型计价: token=%s, error=%v", maskKey(customerToken), calcErr)
 	}
 
 	usageService := NewUsageService()
@@ -304,7 +307,12 @@ func WriteClaudeToMySQL(customerToken string, tokens uint64, inTokens uint64, ou
 	if model != nil {
 		modelStr = *model
 	}
-	log.Printf("[MySQL/Claude] 写入成功: token=%s, tokens=%d, consume=%.6f (USD), in=%d, out=%d, model=%s, hash=%s",
-		maskKey(customerToken), tokens, consume, inTokens, outTokens, modelStr, hash)
+
+	unit := DefaultPricingUnit
+	if pricingRule != nil && pricingRule.Unit != "" {
+		unit = pricingRule.Unit
+	}
+	log.Printf("[MySQL/Claude] 写入成功: token=%s, tokens=%d, consume=%.6f (%s), account_type=%s, in=%d, out=%d, model=%s, hash=%s",
+		maskKey(customerToken), tokens, consume, unit, accountType, inTokens, outTokens, modelStr, hash)
 	return nil
 }

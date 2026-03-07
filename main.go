@@ -100,6 +100,7 @@ func main() {
 				if err := db.AutoMigrate(
 					&entity.AccountSource{},
 					&entity.Product{},
+					&entity.Pricing{},
 					&entity.AccountSourceProcut{},
 					&entity.Account{},
 					&entity.Usage{},
@@ -108,6 +109,9 @@ func main() {
 					log.Printf("AutoMigrate failed: %v", err)
 				} else {
 					log.Println("AutoMigrate completed successfully")
+					if err := service.NewPricingService().EnsureDefaultsFromProducts(); err != nil {
+						log.Printf("Init pricing defaults failed: %v", err)
+					}
 				}
 			}
 		}

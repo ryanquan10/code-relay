@@ -13,6 +13,7 @@ export default function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
   const menuItems = [
     { id: 'sources', label: '账号供应管理', icon: '📦' },
     { id: 'products', label: '产品管理', icon: '🛍️' },
+    { id: 'pricing', label: '计价模块', icon: '💱' },
     { id: 'accounts', label: '账号管理', icon: '👤' },
     { id: 'usage', label: '使用量查看', icon: '📊' },
     { id: 'error-logs', label: '错误日志', icon: '🚨' },

@@ -167,7 +167,7 @@ export default function UsageTab() {
                     <div className="bg-white rounded-lg shadow p-6">
                         <div className="text-sm text-gray-600 mb-1">总消费金额</div>
                         <div className="text-3xl font-bold text-blue-600">
-                            ${usageStats.total_consume?.toFixed(4) || '0.0000'}
+                            {usageStats.total_consume?.toFixed(4) || '0.0000'}
                         </div>
                     </div>
                     <div className="bg-white rounded-lg shadow p-6">
@@ -184,7 +184,7 @@ export default function UsageTab() {
                             <div key={s.source_type || 'unknown'} className="bg-white rounded-lg shadow p-6">
                                 <div className="text-sm text-gray-600 mb-1">{s.source_type || 'unknown'}</div>
                                 <div className="text-3xl font-bold text-blue-600">
-                                    ${(s.total_consume ?? 0).toFixed(4)}
+                                    {(s.total_consume ?? 0).toFixed(4)}
                                 </div>
                                 <div className="text-sm text-gray-700 mt-1">
                                     Token 数：
@@ -261,7 +261,7 @@ export default function UsageTab() {
                             <div className="font-medium">每日统计</div>
                             {dailySummary && (
                                 <div className="text-sm text-gray-600">
-                                    合计 {dailySummary.days} 天，消费 ${Number(dailySummary.total_consume ?? 0).toFixed(4)}（
+                                    合计 {dailySummary.days} 天，消费 {Number(dailySummary.total_consume ?? 0).toFixed(4)}（
                                     {dailySummary.total_records} 条）
                                 </div>
                             )}
@@ -275,7 +275,7 @@ export default function UsageTab() {
                                         日期
                                     </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        消费(USD)
+                                        消费金额
                                     </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         记录数
@@ -287,7 +287,7 @@ export default function UsageTab() {
                                     <tr key={d.date} className="hover:bg-gray-50">
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{d.date}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                                            ${Number(d.total_consume ?? 0).toFixed(4)}
+                                            {Number(d.total_consume ?? 0).toFixed(4)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                             {d.record_count}
@@ -386,7 +386,7 @@ export default function UsageTab() {
                                             {Number(u.tokens ?? 0).toLocaleString()}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                                            ${Number(u.consume ?? 0).toFixed(6)}
+                                            {Number(u.consume ?? 0).toFixed(6)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{u.date}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

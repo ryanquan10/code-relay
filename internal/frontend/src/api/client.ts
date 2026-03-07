@@ -111,6 +111,24 @@ export const productAPI = {
   delete: (id: number) => api.delete(`/products/${id}`),
 };
 
+// 计价管理
+export interface Pricing {
+  id: number;
+  account_type: string;
+  in_token_unit_price: number;
+  out_token_unit_price: number;
+  token_unit: number;
+  unit: string;
+  create_time: string;
+  update_time: string;
+}
+
+export const pricingAPI = {
+  list: () => api.get<any, Pricing[]>('/pricings'),
+  sync: () => api.post<any, { message: string; count: number }>('/pricings/sync', {}),
+  update: (id: number, data: Partial<Pricing>) => api.put<any, Pricing>(`/pricings/${id}`, data),
+};
+
 // 账号管理
 export interface Account {
   id: number;

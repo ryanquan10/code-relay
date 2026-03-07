@@ -127,6 +127,11 @@ func New(cfg config.Config, frontendFS embed.FS) *Server {
 			admin.PUT("/products/:id", controller.UpdateProduct)
 			admin.DELETE("/products/:id", controller.DeleteProduct)
 
+			// 计价管理
+			admin.GET("/pricings", controller.ListPricings)
+			admin.POST("/pricings/sync", controller.SyncPricings)
+			admin.PUT("/pricings/:id", controller.UpdatePricing)
+
 			// 账号管理
 			admin.GET("/accounts", controller.ListAccounts)
 			admin.GET("/accounts/export", controller.ExportAccounts)

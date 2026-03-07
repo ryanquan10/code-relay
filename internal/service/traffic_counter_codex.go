@@ -920,14 +920,17 @@ func (c *TokenUsageConsumer) processMessage(msg redis.XMessage) {
 
 // writeToMySQL 写入 MySQL 使用 UsageService
 func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, inTokens uint64, outTokens uint64, model *string, hash string, originMessage *string) error {
-	// 2. 将 tokens 转换为消费金额（方向区分）
-	// 按官网每百万 tokens 单价近似计价，单位 USD
-	// 实际项目中应根据产品定价/账户类型计算
-	var consume float64
-	if inTokens > 0 || outTokens > 0 {
-		consume = TokensToConsumeByIO(inTokens, outTokens)
-	} else {
-		consume = TokensToConsume(tokens)
+	// 2. 按 account -> product.account_type -> pricing 计算消费
+	pricingService := NewPricingService()
+	consume, pricingRule, accountType, calcErr := pricingService.CalculateConsumeByCustomerToken(customerToken, tokens, inTokens, outTokens)
+	if calcErr != nil {
+		log.Printf("[计价] 查询 pricing 失败，回退默认值: token=%s, error=%v", maskKey(customerToken), calcErr)
+		if inTokens > 0 || outTokens > 0 {
+			consume = TokensToConsumeByIO(inTokens, outTokens)
+		} else {
+			consume = TokensToConsume(tokens)
+		}
+		pricingRule = nil
 	}
 
 	// 3. 使用 UsageService 记录使用量
@@ -936,55 +939,34 @@ func (c *TokenUsageConsumer) writeToMySQL(customerToken string, tokens uint64, i
 		return fmt.Errorf("failed to record token usage: %w", err)
 	}
 
-	log.Printf("[MySQL] 写入成功: token=%s, tokens=%d, consume=%.6f (USD), in=%d, out=%d, hash=%s",
-		maskKey(customerToken), tokens, consume, inTokens, outTokens, hash)
+	unit := DefaultPricingUnit
+	inUnitPrice := DefaultInTokenUnitPrice
+	outUnitPrice := DefaultOutTokenUnitPrice
+	tokenUnit := DefaultTokenUnit
+	if pricingRule != nil {
+		if pricingRule.Unit != "" {
+			unit = pricingRule.Unit
+		}
+		inUnitPrice = pricingRule.InTokenUnitPrice
+		outUnitPrice = pricingRule.OutTokenUnitPrice
+		tokenUnit = pricingRule.TokenUnit
+		if tokenUnit <= 0 {
+			tokenUnit = DefaultTokenUnit
+		}
+	}
+	log.Printf("[MySQL] 写入成功: token=%s, tokens=%d, consume=%.6f (%s), account_type=%s, in=%d, out=%d, in_token_unit_price=%.8f, out_token_unit_price=%.8f, token_unit=%d, hash=%s",
+		maskKey(customerToken), tokens, consume, unit, accountType, inTokens, outTokens, inUnitPrice, outUnitPrice, tokenUnit, hash)
 	return nil
 }
 
-// TokensToConsume 将 tokens 数量转换为消费金额（单位：USD）
-// 近似算法：按 Batch API 单价（每 100 万 tokens）估算：
-// - 输入 $1.75 / 1M
-// - 命中缓存的输入 $0.175 / 1M
-// - 输出 $14.00 / 1M
-// 假设总 tokens 中输入:输出≈70%:30%，其中输入的 10% 为缓存命中。
-// 注意：这里只做近似估算，可按业务需求调整占比或按模型分类计价。
+// TokensToConsume 将 tokens 数量转换为消费金额（基于默认 pricing）
 func TokensToConsume(tokens uint64) float64 {
-	const (
-		pricePerMInputUSD       = 1.75
-		pricePerMCachedInputUSD = 0.175
-		pricePerMOutputUSD      = 14.00
-
-		inputRatio     = 0.70 // 总 tokens 中视作输入的占比
-		outputRatio    = 0.30 // 总 tokens 中视作输出的占比（=1-inputRatio）
-		cachedHitRatio = 0.10 // 输入 tokens 中命中缓存的占比
-	)
-
-	if tokens == 0 {
-		return 0
-	}
-
-	// 有效的每 token 美元价格
-	inputPerTokenUSD := ((1.0-cachedHitRatio)*pricePerMInputUSD + cachedHitRatio*pricePerMCachedInputUSD) / 1_000_000.0
-	outputPerTokenUSD := pricePerMOutputUSD / 1_000_000.0
-	blendedPerTokenUSD := inputRatio*inputPerTokenUSD + outputRatio*outputPerTokenUSD
-
-	return float64(tokens) * blendedPerTokenUSD
+	return CalculateConsumeByPricing(tokens, 0, 0, DefaultPricingForAccountType(""))
 }
 
-// TokensToConsumeByIO 按输入/输出分别计价（单位：USD）
+// TokensToConsumeByIO 按输入/输出分别计价（基于默认 pricing）
 func TokensToConsumeByIO(inTokens uint64, outTokens uint64) float64 {
-	const (
-		pricePerMInputUSD       = 1.75
-		pricePerMCachedInputUSD = 0.175
-		pricePerMOutputUSD      = 14.00
-		cachedHitRatio          = 0.10
-	)
-	if inTokens == 0 && outTokens == 0 {
-		return 0
-	}
-	inputPerTokenUSD := ((1.0-cachedHitRatio)*pricePerMInputUSD + cachedHitRatio*pricePerMCachedInputUSD) / 1_000_000.0
-	outputPerTokenUSD := pricePerMOutputUSD / 1_000_000.0
-	return float64(inTokens)*inputPerTokenUSD + float64(outTokens)*outputPerTokenUSD
+	return CalculateConsumeByPricing(0, inTokens, outTokens, DefaultPricingForAccountType(""))
 }
 
 // GetUsageFromMySQL 从 MySQL 查询指定日期的使用量
