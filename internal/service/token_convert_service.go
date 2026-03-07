@@ -74,17 +74,10 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string, request
 		return nil, fmt.Errorf("insufficient balance")
 	}
 
-	// 过期检查：如果 StartTime 不为空，检查是否已过期
-	if account.StartTime != nil {
-		expireTime := account.StartTime.Add(time.Duration(account.ExpireDays) * 24 * time.Hour)
-		if time.Now().After(expireTime) {
-			log.Printf("[TokenConvert] 账号已过期 [ID: %d, StartTime: %s, ExpireDays: %d, ExpireTime: %s]",
-				account.ID, account.StartTime.Format("2006-01-02 15:04:05"), account.ExpireDays, expireTime.Format("2006-01-02 15:04:05"))
-			return nil, fmt.Errorf("account has expired")
-		}
+	// 过期检查：命中任一过期条件即拒绝使用
+	if s.isAccountExpired(account, time.Now()) {
+		return nil, fmt.Errorf("account has expired")
 	}
-
-	
 
 	// 2. 根据 ProductID 查询所有可用的上游源（按优先级排序）
 	sources, err := s.sourceProductRepo.GetSourcesByProductID(account.ProductID)
@@ -123,6 +116,44 @@ func (s *TokenConvertService) ConvertTokenAndCheck(customerToken string, request
 		maskToken(customerToken), selectedSource.ID, upstreamConfig.UpstreamURL)
 
 	return upstreamConfig, nil
+}
+
+func (s *TokenConvertService) isAccountExpired(account *entity.Account, now time.Time) bool {
+	if account == nil {
+		return true
+	}
+
+	// 规则1: 显式过期时间到达即过期（优先级最高）
+	if account.ExpireDate != nil {
+		expireAt := *account.ExpireDate
+		// 到达过期时刻即视为过期
+		if !now.Before(expireAt) {
+			log.Printf("[TokenConvert] 账号已过期(ExpireDate) [ID: %d, Now: %s, ExpireDate: %s]",
+				account.ID, now.Format("2006-01-02 15:04:05"), expireAt.Format("2006-01-02 15:04:05"))
+			return true
+		}
+	}
+
+	// 规则2: 基于 start_time + expire_days 的相对过期
+	if account.StartTime != nil {
+		if account.ExpireDays <= 0 {
+			log.Printf("[TokenConvert] 账号已过期(ExpireDays<=0) [ID: %d, StartTime: %s, ExpireDays: %d]",
+				account.ID, account.StartTime.Format("2006-01-02 15:04:05"), account.ExpireDays)
+			return true
+		}
+		expireAt := account.StartTime.Add(time.Duration(account.ExpireDays) * 24 * time.Hour)
+		if !now.Before(expireAt) {
+			log.Printf("[TokenConvert] 账号已过期(StartTime+ExpireDays) [ID: %d, StartTime: %s, ExpireDays: %d, ExpireAt: %s, Now: %s]",
+				account.ID,
+				account.StartTime.Format("2006-01-02 15:04:05"),
+				account.ExpireDays,
+				expireAt.Format("2006-01-02 15:04:05"),
+				now.Format("2006-01-02 15:04:05"))
+			return true
+		}
+	}
+
+	return false
 }
 
 // getUpstreamConfigBySourceID 根据 account.SourceID 查询上游配置（兼容旧逻辑）

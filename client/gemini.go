@@ -347,6 +347,12 @@ func (c *geminiRelay) HandleRequest(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprint(w, `{"error":"insufficient_balance","message":"账户余额不足，请充值"}`)
 				return
 			}
+			if strings.Contains(err.Error(), "account has expired") {
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(http.StatusForbidden)
+				fmt.Fprint(w, `{"error":"account_expired","message":"账号已过期，无法继续使用"}`)
+				return
+			}
 		}
 	}
 
