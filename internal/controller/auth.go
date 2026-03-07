@@ -2,6 +2,7 @@ package controller
 
 import (
 	"codex-relay/config"
+	"codex-relay/internal/authsession"
 	"codex-relay/internal/redis"
 	"crypto/rand"
 	"encoding/hex"
@@ -72,16 +73,19 @@ func Login(c *gin.Context) {
 	token := generateToken()
 
 	// 将 token 存储到 Redis，设置过期时间 24 小时
+	expireTTL := 24 * time.Hour
 	client := redis.Client()
 	ctx := redis.Context()
 	tokenKey := "admin_token:" + token
-	if err := client.Set(ctx, tokenKey, "admin", 24*time.Hour).Err(); err != nil {
+	if err := client.Set(ctx, tokenKey, "admin", expireTTL).Err(); err != nil {
 		c.JSON(http.StatusInternalServerError, LoginResponse{
 			Success: false,
 			Message: "Token 生成失败",
 		})
 		return
 	}
+	// 进程内兜底会话，避免 Redis 重连瞬时导致已登录用户被踢下线。
+	authsession.Save(token, time.Now().Add(expireTTL))
 
 	// 登录成功
 	c.JSON(http.StatusOK, LoginResponse{
@@ -118,6 +122,7 @@ func Logout(c *gin.Context) {
 	ctx := redis.Context()
 	tokenKey := "admin_token:" + token
 	client.Del(ctx, tokenKey)
+	authsession.Delete(token)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
