@@ -2,6 +2,8 @@ package service
 
 import (
 	"fmt"
+	"log"
+	"sort"
 	"strings"
 
 	"codex-relay/internal/mysql"
@@ -62,16 +64,20 @@ func (s *PricingService) ensureDB() (*gorm.DB, error) {
 func (s *PricingService) EnsureDefaultsFromProducts() error {
 	db, err := s.ensureDB()
 	if err != nil {
+		log.Printf("[PricingService.EnsureDefaultsFromProducts] ensureDB failed: %v", err)
 		return err
 	}
 
 	accountTypes, err := s.listDistinctProductAccountTypes(db)
 	if err != nil {
+		log.Printf("[PricingService.EnsureDefaultsFromProducts] listDistinctProductAccountTypes failed: %v", err)
 		return fmt.Errorf("failed to query distinct account_type from product: %w", err)
 	}
+	log.Printf("[PricingService.EnsureDefaultsFromProducts] distinct account_type count=%d", len(accountTypes))
 
 	for _, accountType := range accountTypes {
 		if err := s.ensurePricingForAccountType(db, accountType); err != nil {
+			log.Printf("[PricingService.EnsureDefaultsFromProducts] ensurePricingForAccountType failed: account_type=%q err=%v", accountType, err)
 			return err
 		}
 	}
@@ -85,21 +91,28 @@ func (s *PricingService) listDistinctProductAccountTypes(db *gorm.DB) ([]string,
 
 	var rows []accountTypeRow
 	if err := db.Model(&entity.Product{}).
-		Select("DISTINCT TRIM(account_type) AS account_type").
-		Where("TRIM(account_type) <> ''").
-		Order("account_type ASC").
+		Select("account_type").
+		Where("account_type IS NOT NULL AND account_type <> ''").
 		Scan(&rows).Error; err != nil {
+		log.Printf("[PricingService.listDistinctProductAccountTypes] query product account_type failed: %v", err)
 		return nil, err
 	}
 
-	accountTypes := make([]string, 0, len(rows))
+	accountTypeSet := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		accountType := strings.TrimSpace(row.AccountType)
 		if accountType == "" {
 			continue
 		}
+		accountTypeSet[accountType] = struct{}{}
+	}
+
+	accountTypes := make([]string, 0, len(accountTypeSet))
+	for accountType := range accountTypeSet {
 		accountTypes = append(accountTypes, accountType)
 	}
+	sort.Strings(accountTypes)
+
 	return accountTypes, nil
 }
 
@@ -122,23 +135,45 @@ func (s *PricingService) ensurePricingForAccountType(db *gorm.DB, accountType st
 func (s *PricingService) ListByAccountType() ([]entity.Pricing, error) {
 	db, err := s.ensureDB()
 	if err != nil {
+		log.Printf("[PricingService.ListByAccountType] ensureDB failed: %v", err)
 		return nil, err
 	}
 	if err := s.EnsureDefaultsFromProducts(); err != nil {
+		log.Printf("[PricingService.ListByAccountType] EnsureDefaultsFromProducts failed: %v", err)
 		return nil, err
 	}
 
-	var items []entity.Pricing
-	if err := db.Table("pricing AS pr").
-		Select("DISTINCT pr.*").
-		Joins("JOIN product p ON TRIM(p.account_type) = pr.account_type").
-		Where("TRIM(p.account_type) <> ''").
-		Order("pr.account_type ASC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to query pricing list by product account_type: %w", err)
+	accountTypes, err := s.listDistinctProductAccountTypes(db)
+	if err != nil {
+		log.Printf("[PricingService.ListByAccountType] listDistinctProductAccountTypes failed: %v", err)
+		return nil, fmt.Errorf("failed to query distinct account_type from product for listing: %w", err)
 	}
-	for i := range items {
-		items[i].Unit = normalizePricingUnit(items[i].Unit)
+	log.Printf("[PricingService.ListByAccountType] listing account_type count=%d", len(accountTypes))
+	if len(accountTypes) == 0 {
+		return []entity.Pricing{}, nil
+	}
+
+	var rows []entity.Pricing
+	if err := db.Where("account_type IN ?", accountTypes).Find(&rows).Error; err != nil {
+		log.Printf("[PricingService.ListByAccountType] query pricing by account_type failed: count=%d err=%v", len(accountTypes), err)
+		return nil, fmt.Errorf("failed to query pricing list by account_type: %w", err)
+	}
+
+	itemByType := make(map[string]entity.Pricing, len(rows))
+	for _, item := range rows {
+		accountType := strings.TrimSpace(item.AccountType)
+		if accountType == "" {
+			continue
+		}
+		item.Unit = normalizePricingUnit(item.Unit)
+		itemByType[accountType] = item
+	}
+
+	items := make([]entity.Pricing, 0, len(accountTypes))
+	for _, accountType := range accountTypes {
+		if item, ok := itemByType[accountType]; ok {
+			items = append(items, item)
+		}
 	}
 	return items, nil
 }

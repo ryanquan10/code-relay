@@ -29,9 +29,11 @@ func ListPricings(c *gin.Context) {
 	pricingService := service.NewPricingService()
 	items, err := pricingService.ListByAccountType()
 	if err != nil {
+		log.Printf("[ListPricings] failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	log.Printf("[ListPricings] success: count=%d", len(items))
 	c.JSON(http.StatusOK, items)
 }
 
