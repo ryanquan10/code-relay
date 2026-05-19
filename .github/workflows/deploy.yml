@@ -1,0 +1,101 @@
+name: Deploy Code-Relay to Docker
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'docker/**'
+      - 'docker-compose.yml'
+      - 'Dockerfile'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '部署环境'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    name: Deploy to Local Docker
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Docker Environment
+        run: |
+          echo "=== Docker 环境检查 ==="
+          docker --version
+          docker-compose --version
+          echo ""
+          
+      - name: Deploy Code-Relay
+        run: |
+          echo "=== 开始部署 Code-Relay ==="
+          
+          # 进入 docker 目录
+          cd ${{ github.workspace }}/docker
+          
+          echo "当前目录: $(pwd)"
+          echo "文件列表:"
+          ls -la
+          
+          # 停止现有容器
+          echo ""
+          echo "停止现有容器..."
+          docker-compose down --remove-orphans || true
+          
+          # 清理旧镜像
+          echo ""
+          echo "清理旧镜像..."
+          docker image prune -f
+          
+          # 重新构建并启动
+          echo ""
+          echo "构建并启动容器..."
+          docker-compose up --build -d
+          
+          # 等待服务启动
+          echo ""
+          echo "等待服务启动 (10秒)..."
+          sleep 10
+          
+          # 查看状态
+          echo ""
+          echo "容器状态:"
+          docker-compose ps
+          
+          echo ""
+          echo "=== 部署完成 ==="
+      
+      - name: Health Check
+        run: |
+          echo "=== 健康检查 ==="
+          
+          # 检查容器运行状态
+          docker ps | grep code-relay
+          
+          # 等待服务完全启动
+          echo "等待健康检查..."
+          sleep 10
+          
+          # 尝试访问健康端点
+          curl -f http://localhost:8087/api/internal/health || echo "健康检查失败，但容器已启动"
+          
+          echo ""
+          echo "=== 部署状态 ==="
+          docker-compose logs --tail=20
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "=== 清理工作 ==="
+          # 清理构建缓存
+          docker builder prune -f --keep-storage=1G || true
+          echo "清理完成"
