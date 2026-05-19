@@ -2,7 +2,7 @@ name: Deploy Code-Relay to Docker
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, dev/relay ]
     paths:
       - 'docker/**'
       - 'docker-compose.yml'
